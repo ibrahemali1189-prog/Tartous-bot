@@ -2,7 +2,7 @@ name: Check Tartus Port
 
 on:
   schedule:
-    - cron: "*/20 * * * *"
+    - cron: */20 * * * *
   workflow_dispatch:
 
 permissions:
@@ -32,5 +32,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add seen.json
-          git diff --staged --quiet || git commit -m "update seen ships"
-          git push
+          if ! git diff --staged --quiet; then
+            git commit -m "update seen ships"
+            git pull --rebase origin main
+            git push
+          fi
