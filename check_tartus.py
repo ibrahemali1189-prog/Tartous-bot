@@ -1,11 +1,15 @@
 import json
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
 
 PORT_URL = "https://www.myshiptracking.com/ports/port-of-tartous-in-sy-syria-id-3148"
 STATE_FILE = "seen.json"
+TZ = ZoneInfo("Asia/Damascus")
+DAILY_SUMMARY_HOUR = 8  # send once, in the 8:00-8:09 run
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -44,39 +48,56 @@ def fetch_activity(soup):
     return events
 
 
-def fetch_in_port(soup):
-    """Scrape the 'Vessels In Port' table from the port page."""
-    vessels = []
+def _parse_table_by_headers(soup, required_headers):
+    """Generic helper: find a table whose <th> headers contain all of
+    required_headers, and return (headers, list_of_row_cell_texts)."""
     for table in soup.find_all("table"):
         headers = [th.get_text(strip=True) for th in table.find_all("th")]
-        if "Vessel" in headers and "Arrived" in headers:
+        if all(h in headers for h in required_headers):
+            rows = []
             for tr in table.find_all("tr")[1:]:
                 cells = tr.find_all("td")
                 if not cells:
                     continue
-                name = cells[0].get_text(" ", strip=True)
-                arrived = cells[1].get_text(strip=True) if len(cells) > 1 else ""
-                if name:
-                    vessels.append((name, arrived))
-            break
+                row = [c.get_text(" ", strip=True) for c in cells]
+                rows.append(row)
+            return headers, rows
+    return None, []
+
+
+def fetch_in_port(soup):
+    """Scrape the 'Vessels In Port' table, including DWT (cargo capacity)."""
+    headers, rows = _parse_table_by_headers(soup, ["Vessel", "Arrived"])
+    vessels = []
+    for row in rows:
+        rowmap = dict(zip(headers, row))
+        name = rowmap.get("Vessel", "")
+        if not name:
+            continue
+        vessels.append({
+            "name": name,
+            "arrived": rowmap.get("Arrived", ""),
+            "dwt": rowmap.get("DWT", ""),
+            "grt": rowmap.get("GRT", ""),
+            "built": rowmap.get("Built", ""),
+            "size": rowmap.get("Size", ""),
+        })
     return vessels
 
 
 def fetch_expected(soup):
     """Scrape the 'Expected Arrivals' table from the port page."""
+    headers, rows = _parse_table_by_headers(soup, ["Vessel", "Estimated Arrival"])
     vessels = []
-    for table in soup.find_all("table"):
-        headers = [th.get_text(strip=True) for th in table.find_all("th")]
-        if "Vessel" in headers and "Estimated Arrival" in headers:
-            for tr in table.find_all("tr")[1:]:
-                cells = tr.find_all("td")
-                if not cells:
-                    continue
-                name = cells[1].get_text(" ", strip=True) if len(cells) > 1 else ""
-                eta = cells[2].get_text(strip=True) if len(cells) > 2 else ""
-                if name:
-                    vessels.append((name, eta))
-            break
+    for row in rows:
+        rowmap = dict(zip(headers, row))
+        name = rowmap.get("Vessel", "")
+        if not name:
+            continue
+        vessels.append({
+            "name": name,
+            "eta": rowmap.get("Estimated Arrival", ""),
+        })
     return vessels
 
 
@@ -86,9 +107,11 @@ def load_state():
             data = json.load(f)
             if isinstance(data, list):
                 # old format migration
-                return {"seen": data, "update_offset": 0}
+                return {"seen": data, "update_offset": 0, "last_summary_date": ""}
+            data.setdefault("update_offset", 0)
+            data.setdefault("last_summary_date", "")
             return data
-    return {"seen": [], "update_offset": 0}
+    return {"seen": [], "update_offset": 0, "last_summary_date": ""}
 
 
 def save_state(state):
@@ -104,7 +127,7 @@ def send_telegram(msg):
 
 
 def get_new_commands(state):
-    """Check for new /inport commands sent to the bot since the last run."""
+    """Check for new commands sent to the bot since the last run."""
     offset = state.get("update_offset", 0)
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     params = {"offset": offset + 1, "timeout": 0}
@@ -117,13 +140,27 @@ def get_new_commands(state):
     for update in data.get("result", []):
         max_id = max(max_id, update["update_id"])
         msg = update.get("message", {})
-        text = msg.get("text", "").strip().lower()
+        text = msg.get("text", "").strip()
         chat_id = str(msg.get("chat", {}).get("id", ""))
-        if chat_id == CHAT_ID and (text.startswith("/inport") or text.startswith("/expected")):
+        if chat_id != CHAT_ID:
+            continue
+        low = text.lower()
+        if low.startswith("/inport") or low.startswith("/expected") or low.startswith("/ship"):
             commands.append(text)
 
     state["update_offset"] = max_id
     return commands
+
+
+def format_vessel_line(v):
+    extra = []
+    if v.get("dwt"):
+        extra.append(f"الحمولة: {v['dwt']}")
+    if v.get("built"):
+        extra.append(f"سنة البناء: {v['built']}")
+    extra_txt = f" ({', '.join(extra)})" if extra else ""
+    arrived_txt = f" — وصلت: {v['arrived']}" if v.get("arrived") else ""
+    return f"🚢 {v['name']}{arrived_txt}{extra_txt}"
 
 
 def handle_in_port_request(soup):
@@ -132,11 +169,8 @@ def handle_in_port_request(soup):
         send_telegram("ما قدرت أجيب لستة السفن الحالية حالياً، جرب بعد شوي.")
         return
     lines = ["⚓ السفن الراسية حالياً بميناء طرطوس:\n"]
-    for name, arrived in vessels:
-        if arrived:
-            lines.append(f"🚢 {name} — وصلت: {arrived}")
-        else:
-            lines.append(f"🚢 {name}")
+    for v in vessels:
+        lines.append(format_vessel_line(v))
     send_telegram("\n".join(lines))
 
 
@@ -146,12 +180,61 @@ def handle_expected_request(soup):
         send_telegram("ما في سفن متوقع وصولها مسجلة حالياً بميناء طرطوس.")
         return
     lines = ["🕒 السفن المتوقع وصولها لميناء طرطوس:\n"]
-    for name, eta in vessels:
-        if eta:
-            lines.append(f"🚢 {name} — الوصول المتوقع: {eta}")
-        else:
-            lines.append(f"🚢 {name}")
+    for v in vessels:
+        eta_txt = f" — الوصول المتوقع: {v['eta']}" if v.get("eta") else ""
+        lines.append(f"🚢 {v['name']}{eta_txt}")
     send_telegram("\n".join(lines))
+
+
+def handle_ship_request(soup, query):
+    query = query.strip().lower()
+    if not query:
+        send_telegram("اكتب اسم السفينة بعد الأمر، مثلاً: /ship EVER GIVEN")
+        return
+
+    in_port = fetch_in_port(soup)
+    expected = fetch_expected(soup)
+
+    matches_in_port = [v for v in in_port if query in v["name"].lower()]
+    matches_expected = [v for v in expected if query in v["name"].lower()]
+
+    if not matches_in_port and not matches_expected:
+        send_telegram(f"ما لقيت سفينة اسمها يحتوي على \"{query}\" حالياً بميناء طرطوس.")
+        return
+
+    lines = []
+    for v in matches_in_port:
+        lines.append("📍 موجودة حالياً بالميناء:")
+        lines.append(format_vessel_line(v))
+    for v in matches_expected:
+        eta_txt = f" — الوصول المتوقع: {v['eta']}" if v.get("eta") else ""
+        lines.append("🕒 متوقع وصولها:")
+        lines.append(f"🚢 {v['name']}{eta_txt}")
+    send_telegram("\n".join(lines))
+
+
+def maybe_send_daily_summary(soup, state):
+    now = datetime.now(TZ)
+    today_str = now.strftime("%Y-%m-%d")
+    if now.hour != DAILY_SUMMARY_HOUR:
+        return
+    if state.get("last_summary_date") == today_str:
+        return
+
+    in_port = fetch_in_port(soup)
+    expected = fetch_expected(soup)
+
+    lines = [f"📋 ملخص يومي - ميناء طرطوس ({today_str})\n"]
+    lines.append(f"⚓ عدد السفن الموجودة حالياً: {len(in_port)}")
+    lines.append(f"🕒 عدد السفن المتوقع وصولها: {len(expected)}\n")
+
+    if in_port:
+        lines.append("السفن الموجودة:")
+        for v in in_port:
+            lines.append(format_vessel_line(v))
+
+    send_telegram("\n".join(lines))
+    state["last_summary_date"] = today_str
 
 
 def main():
@@ -176,10 +259,18 @@ def main():
     # 2) check if the user sent a command
     commands = get_new_commands(state)
     for cmd in commands:
-        if cmd.startswith("/inport"):
+        low = cmd.lower()
+        if low.startswith("/inport"):
             handle_in_port_request(soup)
-        elif cmd.startswith("/expected"):
+        elif low.startswith("/expected"):
             handle_expected_request(soup)
+        elif low.startswith("/ship"):
+            query = cmd[len("/ship"):].strip()
+            handle_ship_request(soup, query)
+
+    # 3) daily summary (once per day, around 8 AM Damascus time)
+    if not first_run:
+        maybe_send_daily_summary(soup, state)
 
     save_state(state)
 
