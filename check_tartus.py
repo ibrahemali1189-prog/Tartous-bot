@@ -155,20 +155,20 @@ def get_new_commands(state):
 def format_vessel_line(v):
     extra = []
     if v.get("dwt"):
-        extra.append(f"الحمولة: {v['dwt']}")
+        extra.append(f"cargo: {v['dwt']}")
     if v.get("built"):
-        extra.append(f"سنة البناء: {v['built']}")
+        extra.append(f"built: {v['built']}")
     extra_txt = f" ({', '.join(extra)})" if extra else ""
-    arrived_txt = f" — وصلت: {v['arrived']}" if v.get("arrived") else ""
+    arrived_txt = f" — arrived: {v['arrived']}" if v.get("arrived") else ""
     return f"🚢 {v['name']}{arrived_txt}{extra_txt}"
 
 
 def handle_in_port_request(soup):
     vessels = fetch_in_port(soup)
     if not vessels:
-        send_telegram("ما قدرت أجيب لستة السفن الحالية حالياً، جرب بعد شوي.")
+        send_telegram("Couldn't fetch the current vessel list right now, try again shortly.")
         return
-    lines = ["⚓ السفن الراسية حالياً بميناء طرطوس:\n"]
+    lines = ["⚓ Vessels currently in the Port of Tartous:\n"]
     for v in vessels:
         lines.append(format_vessel_line(v))
     send_telegram("\n".join(lines))
@@ -177,11 +177,11 @@ def handle_in_port_request(soup):
 def handle_expected_request(soup):
     vessels = fetch_expected(soup)
     if not vessels:
-        send_telegram("ما في سفن متوقع وصولها مسجلة حالياً بميناء طرطوس.")
+        send_telegram("No expected arrivals currently listed for the Port of Tartous.")
         return
-    lines = ["🕒 السفن المتوقع وصولها لميناء طرطوس:\n"]
+    lines = ["🕒 Vessels expected to arrive at the Port of Tartous:\n"]
     for v in vessels:
-        eta_txt = f" — الوصول المتوقع: {v['eta']}" if v.get("eta") else ""
+        eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
         lines.append(f"🚢 {v['name']}{eta_txt}")
     send_telegram("\n".join(lines))
 
@@ -189,27 +189,44 @@ def handle_expected_request(soup):
 def handle_ship_request(soup, query):
     query = query.strip().lower()
     if not query:
-        send_telegram("اكتب اسم السفينة بعد الأمر، مثلاً: /ship EVER GIVEN")
+        send_telegram("Add a ship name after the command, e.g.: /ship EVER GIVEN")
         return
 
     in_port = fetch_in_port(soup)
     expected = fetch_expected(soup)
+    activity = fetch_activity(soup)
 
     matches_in_port = [v for v in in_port if query in v["name"].lower()]
     matches_expected = [v for v in expected if query in v["name"].lower()]
+    # fallback: search recent activity log too, since the in-port table on
+    # the main page only shows the first ~10 vessels out of the full count
+    matches_activity = [
+        e for e in activity
+        if query in e["vessel"].lower()
+        and e["vessel"].lower() not in {v["name"].lower() for v in matches_in_port}
+    ]
 
-    if not matches_in_port and not matches_expected:
-        send_telegram(f"ما لقيت سفينة اسمها يحتوي على \"{query}\" حالياً بميناء طرطوس.")
+    if not matches_in_port and not matches_expected and not matches_activity:
+        send_telegram(f"No vessel matching \"{query}\" found for the Port of Tartous right now.")
         return
 
     lines = []
     for v in matches_in_port:
-        lines.append("📍 موجودة حالياً بالميناء:")
+        lines.append("📍 Currently in port:")
         lines.append(format_vessel_line(v))
     for v in matches_expected:
-        eta_txt = f" — الوصول المتوقع: {v['eta']}" if v.get("eta") else ""
-        lines.append("🕒 متوقع وصولها:")
+        eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
+        lines.append("🕒 Expected to arrive:")
         lines.append(f"🚢 {v['name']}{eta_txt}")
+    # de-duplicate activity matches by vessel name, keep most recent only
+    seen_names = set()
+    for e in matches_activity:
+        if e["vessel"] in seen_names:
+            continue
+        seen_names.add(e["vessel"])
+        icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
+        lines.append(f"{icon} (per latest recorded activity):")
+        lines.append(f"🚢 {e['vessel']} — {e['time']}")
     send_telegram("\n".join(lines))
 
 
@@ -224,12 +241,12 @@ def maybe_send_daily_summary(soup, state):
     in_port = fetch_in_port(soup)
     expected = fetch_expected(soup)
 
-    lines = [f"📋 ملخص يومي - ميناء طرطوس ({today_str})\n"]
-    lines.append(f"⚓ عدد السفن الموجودة حالياً: {len(in_port)}")
-    lines.append(f"🕒 عدد السفن المتوقع وصولها: {len(expected)}\n")
+    lines = [f"📋 Daily Summary - Port of Tartous ({today_str})\n"]
+    lines.append(f"⚓ Vessels currently in port: {len(in_port)}")
+    lines.append(f"🕒 Vessels expected to arrive: {len(expected)}\n")
 
     if in_port:
-        lines.append("السفن الموجودة:")
+        lines.append("Vessels in port:")
         for v in in_port:
             lines.append(format_vessel_line(v))
 
@@ -250,8 +267,8 @@ def main():
         seen.add(e["key"])
         if first_run:
             continue  # don't spam on the very first run, just record history
-        icon = "🟢 دخول" if e["event"] == "ARRIVAL" else "🔴 خروج"
-        msg = f"{icon} سفينة: {e['vessel']}\n🕒 الوقت: {e['time']}\n⚓ ميناء طرطوس"
+        icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
+        msg = f"{icon}: {e['vessel']}\n🕒 Time: {e['time']}\n⚓ Port of Tartous"
         send_telegram(msg)
 
     state["seen"] = list(seen)
