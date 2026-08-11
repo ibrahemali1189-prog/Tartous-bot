@@ -299,13 +299,18 @@ def main():
     for e in reversed(new_events):  # oldest first
         if not first_run and e["key"] not in confirmed_keys:
             continue  # didn't reappear on the confirmation fetch - retry next run
-        seen.add(e["key"])
+
         if first_run:
+            seen.add(e["key"])
             continue  # don't spam on the very first run, just record history
+
         # extra sanity check: if the source claims a vessel departed but it's
-        # still listed as in-port right now, treat it as a bad scrape and skip
+        # still listed as in-port right now, treat it as a bad scrape and
+        # retry next run instead of trusting it.
         if e["event"] == "DEPARTURE" and e["vessel"].lower() in in_port_names:
             continue
+
+        seen.add(e["key"])
         icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
         msg = f"{icon}: {e['vessel']}\n🕒 Time: {e['time']}\n⚓ Port of Tartous"
         send_telegram(msg)
