@@ -12,7 +12,8 @@ TZ = ZoneInfo("Asia/Damascus")
 DAILY_SUMMARY_HOUR = 8  # send once, in the 8:00-8:09 run
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+# Supports one or more chat IDs, comma-separated, e.g. "111111,222222"
+CHAT_IDS = [c.strip() for c in os.environ["TELEGRAM_CHAT_ID"].split(",") if c.strip()]
 
 HEADERS = {
     "User-Agent": (
@@ -122,12 +123,14 @@ def save_state(state):
 
 def send_telegram(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    r = requests.post(url, data={"chat_id": CHAT_ID, "text": msg}, timeout=30)
-    r.raise_for_status()
+    for chat_id in CHAT_IDS:
+        r = requests.post(url, data={"chat_id": chat_id, "text": msg}, timeout=30)
+        r.raise_for_status()
 
 
 def get_new_commands(state):
-    """Check for new commands sent to the bot since the last run."""
+    """Check for new commands sent to the bot since the last run.
+    Accepts commands from any of the configured chat IDs."""
     offset = state.get("update_offset", 0)
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     params = {"offset": offset + 1, "timeout": 0}
@@ -142,7 +145,7 @@ def get_new_commands(state):
         msg = update.get("message", {})
         text = msg.get("text", "").strip()
         chat_id = str(msg.get("chat", {}).get("id", ""))
-        if chat_id != CHAT_ID:
+        if chat_id not in CHAT_IDS:
             continue
         low = text.lower()
         if low.startswith("/inport") or low.startswith("/expected") or low.startswith("/ship"):
@@ -233,7 +236,10 @@ def handle_ship_request(soup, query):
 def maybe_send_daily_summary(soup, state):
     now = datetime.now(TZ)
     today_str = now.strftime("%Y-%m-%d")
-    if now.hour != DAILY_SUMMARY_HOUR:
+    # send on the first run of the day at/after the target hour, rather than
+    # requiring an exact hour match - free GitHub Actions schedules can run
+    # late by hours, so a strict match can skip the day entirely
+    if now.hour < DAILY_SUMMARY_HOUR:
         return
     if state.get("last_summary_date") == today_str:
         return
@@ -254,19 +260,52 @@ def maybe_send_daily_summary(soup, state):
     state["last_summary_date"] = today_str
 
 
+def page_looks_valid(soup):
+    """Basic sanity check: bail out if the fetched page looks broken/empty
+    (e.g. a temporary site glitch) rather than trusting bad data."""
+    text = soup.get_text()
+    if "No Internet" in text and "Vessels In Port" not in text:
+        return False
+    return True
+
+
 def main():
     soup = fetch_page()
+
+    if not page_looks_valid(soup):
+        # site returned a broken/incomplete page this run - skip everything
+        # rather than risk sending false notifications, try again next run
+        return
+
     state = load_state()
     seen = set(state.get("seen", []))
     first_run = len(seen) == 0
 
+    in_port_names = {v["name"].lower() for v in fetch_in_port(soup)}
+
     # 1) check for new ships arriving/leaving
     events = fetch_activity(soup)
     new_events = [e for e in events if e["key"] not in seen]
+
+    # Confirm any candidate notifications with a second, independent fetch
+    # a few seconds later - only report events that show up consistently in
+    # both, to filter out transient site glitches (e.g. a broken page load).
+    confirmed_keys = set()
+    if new_events and not first_run:
+        soup2 = fetch_page()
+        if page_looks_valid(soup2):
+            confirmed_keys = {e2["key"] for e2 in fetch_activity(soup2)}
+
     for e in reversed(new_events):  # oldest first
+        if not first_run and e["key"] not in confirmed_keys:
+            continue  # didn't reappear on the confirmation fetch - retry next run
         seen.add(e["key"])
         if first_run:
             continue  # don't spam on the very first run, just record history
+        # extra sanity check: if the source claims a vessel departed but it's
+        # still listed as in-port right now, treat it as a bad scrape and skip
+        if e["event"] == "DEPARTURE" and e["vessel"].lower() in in_port_names:
+            continue
         icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
         msg = f"{icon}: {e['vessel']}\n🕒 Time: {e['time']}\n⚓ Port of Tartous"
         send_telegram(msg)
