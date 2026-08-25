@@ -44,14 +44,41 @@ def fetch_activity(soup):
         vessel_txt = cells[2].get_text(" ", strip=True)
         if not vessel_txt:
             continue
+        link = cells[2].find("a")
+        vessel_url = link["href"] if link and link.get("href") else None
+        if vessel_url and vessel_url.startswith("/"):
+            vessel_url = "https://www.myshiptracking.com" + vessel_url
         key = f"{time_txt}|{event_txt}|{vessel_txt}"
-        events.append({"key": key, "time": time_txt, "event": event_txt, "vessel": vessel_txt})
+        events.append({
+            "key": key, "time": time_txt, "event": event_txt,
+            "vessel": vessel_txt, "url": vessel_url,
+        })
     return events
+
+
+def fetch_vessel_type(vessel_url):
+    """Look up a vessel's type (e.g. 'Oil Products Tanker', 'Livestock
+    Carrier') from its detail page. Returns None if unavailable."""
+    if not vessel_url:
+        return None
+    try:
+        resp = requests.get(vessel_url, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+        vsoup = BeautifulSoup(resp.text, "html.parser")
+        h2 = vsoup.find("h2")
+        if h2:
+            type_txt = h2.get_text(strip=True)
+            if type_txt:
+                return type_txt
+    except requests.RequestException:
+        pass
+    return None
 
 
 def _parse_table_by_headers(soup, required_headers):
     """Generic helper: find a table whose <th> headers contain all of
-    required_headers, and return (headers, list_of_row_cell_texts)."""
+    required_headers, and return (headers, list_of_rows) where each row is
+    a list of (text, href) tuples per cell."""
     for table in soup.find_all("table"):
         headers = [th.get_text(strip=True) for th in table.find_all("th")]
         if all(h in headers for h in required_headers):
@@ -60,7 +87,14 @@ def _parse_table_by_headers(soup, required_headers):
                 cells = tr.find_all("td")
                 if not cells:
                     continue
-                row = [c.get_text(" ", strip=True) for c in cells]
+                row = []
+                for c in cells:
+                    text = c.get_text(" ", strip=True)
+                    link = c.find("a")
+                    href = link["href"] if link and link.get("href") else None
+                    if href and href.startswith("/"):
+                        href = "https://www.myshiptracking.com" + href
+                    row.append((text, href))
                 rows.append(row)
             return headers, rows
     return None, []
@@ -72,16 +106,17 @@ def fetch_in_port(soup):
     vessels = []
     for row in rows:
         rowmap = dict(zip(headers, row))
-        name = rowmap.get("Vessel", "")
+        name, url = rowmap.get("Vessel", ("", None))
         if not name:
             continue
         vessels.append({
             "name": name,
-            "arrived": rowmap.get("Arrived", ""),
-            "dwt": rowmap.get("DWT", ""),
-            "grt": rowmap.get("GRT", ""),
-            "built": rowmap.get("Built", ""),
-            "size": rowmap.get("Size", ""),
+            "url": url,
+            "arrived": rowmap.get("Arrived", ("", None))[0],
+            "dwt": rowmap.get("DWT", ("", None))[0],
+            "grt": rowmap.get("GRT", ("", None))[0],
+            "built": rowmap.get("Built", ("", None))[0],
+            "size": rowmap.get("Size", ("", None))[0],
         })
     return vessels
 
@@ -92,12 +127,13 @@ def fetch_expected(soup):
     vessels = []
     for row in rows:
         rowmap = dict(zip(headers, row))
-        name = rowmap.get("Vessel", "")
+        name, url = rowmap.get("Vessel", ("", None))
         if not name:
             continue
         vessels.append({
             "name": name,
-            "eta": rowmap.get("Estimated Arrival", ""),
+            "url": url,
+            "eta": rowmap.get("Estimated Arrival", ("", None))[0],
         })
     return vessels
 
@@ -157,6 +193,8 @@ def get_new_commands(state):
 
 def format_vessel_line(v):
     extra = []
+    if v.get("type"):
+        extra.append(v["type"])
     if v.get("dwt"):
         extra.append(f"cargo: {v['dwt']}")
     if v.get("built"):
@@ -173,6 +211,7 @@ def handle_in_port_request(soup):
         return
     lines = ["⚓ Vessels currently in the Port of Tartous:\n"]
     for v in vessels:
+        v["type"] = fetch_vessel_type(v.get("url"))
         lines.append(format_vessel_line(v))
     send_telegram("\n".join(lines))
 
@@ -184,9 +223,12 @@ def handle_expected_request(soup):
         return
     lines = ["🕒 Vessels expected to arrive at the Port of Tartous:\n"]
     for v in vessels:
+        vtype = fetch_vessel_type(v.get("url"))
+        type_txt = f" ({vtype})" if vtype else ""
         eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
-        lines.append(f"🚢 {v['name']}{eta_txt}")
+        lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
     send_telegram("\n".join(lines))
+
 
 
 def handle_ship_request(soup, query):
@@ -215,21 +257,26 @@ def handle_ship_request(soup, query):
 
     lines = []
     for v in matches_in_port:
+        v["type"] = fetch_vessel_type(v.get("url"))
         lines.append("📍 Currently in port:")
         lines.append(format_vessel_line(v))
     for v in matches_expected:
+        vtype = fetch_vessel_type(v.get("url"))
+        type_txt = f" ({vtype})" if vtype else ""
         eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
         lines.append("🕒 Expected to arrive:")
-        lines.append(f"🚢 {v['name']}{eta_txt}")
+        lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
     # de-duplicate activity matches by vessel name, keep most recent only
     seen_names = set()
     for e in matches_activity:
         if e["vessel"] in seen_names:
             continue
         seen_names.add(e["vessel"])
+        vtype = fetch_vessel_type(e.get("url"))
+        type_txt = f" ({vtype})" if vtype else ""
         icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
         lines.append(f"{icon} (per latest recorded activity):")
-        lines.append(f"🚢 {e['vessel']} — {e['time']}")
+        lines.append(f"🚢 {e['vessel']}{type_txt} — {e['time']}")
     send_telegram("\n".join(lines))
 
 
@@ -254,6 +301,7 @@ def maybe_send_daily_summary(soup, state):
     if in_port:
         lines.append("Vessels in port:")
         for v in in_port:
+            v["type"] = fetch_vessel_type(v.get("url"))
             lines.append(format_vessel_line(v))
 
     send_telegram("\n".join(lines))
@@ -312,7 +360,9 @@ def main():
 
         seen.add(e["key"])
         icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
-        msg = f"{icon}: {e['vessel']}\n🕒 Time: {e['time']}\n⚓ Port of Tartous"
+        vessel_type = fetch_vessel_type(e.get("url"))
+        type_line = f"\n🚢 Type: {vessel_type}" if vessel_type else ""
+        msg = f"{icon}: {e['vessel']}{type_line}\n🕒 Time: {e['time']}\n⚓ Port of Tartous"
         send_telegram(msg)
 
     state["seen"] = list(seen)
