@@ -106,8 +106,10 @@
     "2026-08-2714:03|ARRIVAL|ANUBIS [TZ]",
     "2026-08-2715:37|DEPARTURE|IBRAHIM B [KN]",
     "2026-08-2717:41|ARRIVAL|ALAA M [KN]",
-    "2026-08-2717:45|ARRIVAL|GARLAND [PA]"
+    "2026-08-2717:45|ARRIVAL|GARLAND [PA]",
+    "2026-08-2806:19|DEPARTURE|AXIS I [TG]",
+    "2026-08-2808:00|ARRIVAL|AXIS I [TG]"
   ],
-  "update_offset": 362578803,
-  "last_summary_date": "2026-08-27"
+  "update_offset": 362578804,
+  "last_summary_date": "2026-08-28"
 }
