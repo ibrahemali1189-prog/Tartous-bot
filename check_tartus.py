@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -70,6 +71,28 @@ def fetch_vessel_type(vessel_url):
             type_txt = h2.get_text(strip=True)
             if type_txt:
                 return type_txt
+    except requests.RequestException:
+        pass
+    return None
+
+
+def fetch_vessel_position(vessel_url):
+    """Look up a vessel's live coordinates and report time from its detail
+    page. Returns a dict with lat, lon, reported (text) or None."""
+    if not vessel_url:
+        return None
+    try:
+        resp = requests.get(vessel_url, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+        text = resp.text
+        match = re.search(
+            r"coordinates\s+(-?\d+\.\d+)\s*[°]?\s*/\s*(-?\d+\.\d+)\s*[°]?\s*"
+            r"as reported on\s+([0-9:\-\s]+?)\s+by AIS",
+            text,
+        )
+        if match:
+            lat, lon, reported = match.groups()
+            return {"lat": lat, "lon": lon, "reported": reported.strip()}
     except requests.RequestException:
         pass
     return None
@@ -184,7 +207,8 @@ def get_new_commands(state):
         if chat_id not in CHAT_IDS:
             continue
         low = text.lower()
-        if low.startswith("/inport") or low.startswith("/expected") or low.startswith("/ship"):
+        if (low.startswith("/inport") or low.startswith("/expected")
+                or low.startswith("/ship") or low.startswith("/pos")):
             commands.append(text)
 
     state["update_offset"] = max_id
@@ -278,6 +302,43 @@ def handle_ship_request(soup, query):
         lines.append(f"{icon} (per latest recorded activity):")
         lines.append(f"🚢 {e['vessel']}{type_txt} — {e['time']}")
     send_telegram("\n".join(lines))
+
+
+def handle_pos_request(soup, query):
+    """Find a vessel by (partial) name and report its live coordinates,
+    used for manually calibrating berth positions."""
+    query = query.strip().lower()
+    if not query:
+        send_telegram("Add a ship name after the command, e.g.: /pos AXIS I")
+        return
+
+    in_port = fetch_in_port(soup)
+    expected = fetch_expected(soup)
+    activity = fetch_activity(soup)
+
+    candidates = {}
+    for v in in_port + expected:
+        if query in v["name"].lower() and v.get("url"):
+            candidates[v["name"]] = v["url"]
+    for e in activity:
+        if query in e["vessel"].lower() and e.get("url"):
+            candidates.setdefault(e["vessel"], e["url"])
+
+    if not candidates:
+        send_telegram(f"No vessel matching \"{query}\" found for the Port of Tartous right now.")
+        return
+
+    lines = []
+    for name, url in candidates.items():
+        pos = fetch_vessel_position(url)
+        if not pos:
+            lines.append(f"🚢 {name} — couldn't read live coordinates right now.")
+            continue
+        maps_link = f"https://maps.google.com/?q={pos['lat']},{pos['lon']}"
+        lines.append(
+            f"🚢 {name}\n📍 {pos['lat']}, {pos['lon']} (as of {pos['reported']})\n{maps_link}"
+        )
+    send_telegram("\n\n".join(lines))
 
 
 def maybe_send_daily_summary(soup, state):
@@ -378,6 +439,9 @@ def main():
         elif low.startswith("/ship"):
             query = cmd[len("/ship"):].strip()
             handle_ship_request(soup, query)
+        elif low.startswith("/pos"):
+            query = cmd[len("/pos"):].strip()
+            handle_pos_request(soup, query)
 
     # 3) daily summary (once per day, around 8 AM Damascus time)
     if not first_run:
