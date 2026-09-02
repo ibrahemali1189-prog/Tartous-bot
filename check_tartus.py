@@ -84,7 +84,10 @@ def fetch_vessel_position(vessel_url):
     try:
         resp = requests.get(vessel_url, headers=HEADERS, timeout=20)
         resp.raise_for_status()
-        text = resp.text
+        vsoup = BeautifulSoup(resp.text, "html.parser")
+        # use plain text (tags stripped) since the site wraps the numbers
+        # in <strong> tags, which breaks a regex run on the raw HTML
+        text = vsoup.get_text(" ", strip=True)
         match = re.search(
             r"coordinates\s+(-?\d+\.\d+)\s*[°]?\s*/\s*(-?\d+\.\d+)\s*[°]?\s*"
             r"as reported on\s+([0-9:\-\s]+?)\s+by AIS",
