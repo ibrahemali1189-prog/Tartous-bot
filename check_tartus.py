@@ -85,8 +85,27 @@ def fetch_vessel_position(vessel_url):
         resp = requests.get(vessel_url, headers=HEADERS, timeout=20)
         resp.raise_for_status()
         vsoup = BeautifulSoup(resp.text, "html.parser")
-        # use plain text (tags stripped) since the site wraps the numbers
-        # in <strong> tags, which breaks a regex run on the raw HTML
+
+        # Prefer the most recent row of the "Events" table - it's logged
+        # more granularly than the general "current position" summary,
+        # which can be stale if the AIS signal briefly dropped (common
+        # near berths, blocked by cranes/buildings).
+        for table in vsoup.find_all("table"):
+            headers = [th.get_text(strip=True) for th in table.find_all("th")]
+            if "Time" in headers and "Event" in headers:
+                rows = table.find_all("tr")[1:]
+                if rows:
+                    cells = rows[0].find_all("td")
+                    if cells:
+                        time_txt = cells[0].get_text(strip=True)
+                        row_txt = rows[0].get_text(" ", strip=True)
+                        pmatch = re.search(r"(-?\d+\.\d+)\s*/\s*(-?\d+\.\d+)", row_txt)
+                        if pmatch:
+                            lat, lon = pmatch.groups()
+                            return {"lat": lat, "lon": lon, "reported": time_txt}
+                break
+
+        # Fall back to the general "current position" narrative sentence
         text = vsoup.get_text(" ", strip=True)
         match = re.search(
             r"coordinates\s+(-?\d+\.\d+)\s*[°]?\s*/\s*(-?\d+\.\d+)\s*[°]?\s*"
