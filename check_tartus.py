@@ -2,6 +2,7 @@ import json
 import os
 import re
 from datetime import datetime
+from math import radians, cos, hypot
 from zoneinfo import ZoneInfo
 
 import requests
@@ -22,6 +23,59 @@ HEADERS = {
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )
 }
+
+# Berth reference lines for the Port of Tartous, each defined by two
+# (lat, lon) endpoints (base -> head), calibrated from Google Maps.
+# Berth 13 and 22 run crosswise, connecting the other piers.
+BERTHS = {
+    "4": ((34.910513, 35.869054), (34.908821, 35.862661)),
+    "7": ((34.909062, 35.869411), (34.907714, 35.864136)),
+    "9": ((34.907516, 35.870729), (34.905612, 35.863220)),
+    "12": ((34.906586, 35.872711), (34.904655, 35.865079)),
+    "13": ((34.902991, 35.865084), (34.904489, 35.864903)),
+    "14": ((34.904985, 35.873420), (34.902955, 35.865103)),
+    "22": ((34.900927, 35.872745), (34.900384, 35.872566)),
+}
+_BERTH_MAX_DISTANCE_M = 120  # beyond this, don't claim a berth match
+
+_REF_LAT = 34.905  # local reference latitude for the flat-earth projection
+
+
+def _to_xy(lat, lon):
+    """Rough local equirectangular projection to meters, good enough for
+    the small area spanned by the port."""
+    x = (lon - 35.868) * 111320 * cos(radians(_REF_LAT))
+    y = (lat - _REF_LAT) * 110540
+    return x, y
+
+
+def _point_segment_distance(px, py, x1, y1, x2, y2):
+    dx, dy = x2 - x1, y2 - y1
+    if dx == 0 and dy == 0:
+        return hypot(px - x1, py - y1)
+    t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+    t = max(0, min(1, t))
+    proj_x, proj_y = x1 + t * dx, y1 + t * dy
+    return hypot(px - proj_x, py - proj_y)
+
+
+def nearest_berth(lat, lon):
+    """Return (berth_name, distance_meters) for the closest known berth
+    line, or (None, None) if too far from any of them to be confident."""
+    try:
+        px, py = _to_xy(float(lat), float(lon))
+    except (TypeError, ValueError):
+        return None, None
+    best_name, best_dist = None, None
+    for name, (p1, p2) in BERTHS.items():
+        x1, y1 = _to_xy(*p1)
+        x2, y2 = _to_xy(*p2)
+        d = _point_segment_distance(px, py, x1, y1, x2, y2)
+        if best_dist is None or d < best_dist:
+            best_name, best_dist = name, d
+    if best_dist is not None and best_dist <= _BERTH_MAX_DISTANCE_M:
+        return best_name, round(best_dist)
+    return None, None
 
 
 def fetch_page():
@@ -237,8 +291,20 @@ def get_new_commands(state):
     return commands
 
 
+def berth_label(vessel_url):
+    """Fetch a vessel's live position and return a 'Berth N' label if it
+    matches one of our known berth lines, else None."""
+    pos = fetch_vessel_position(vessel_url)
+    if not pos:
+        return None
+    berth, _dist = nearest_berth(pos["lat"], pos["lon"])
+    return f"Berth {berth}" if berth else None
+
+
 def format_vessel_line(v):
     extra = []
+    if v.get("berth"):
+        extra.append(v["berth"])
     if v.get("type"):
         extra.append(v["type"])
     if v.get("dwt"):
@@ -258,6 +324,7 @@ def handle_in_port_request(soup):
     lines = ["⚓ Vessels currently in the Port of Tartous:\n"]
     for v in vessels:
         v["type"] = fetch_vessel_type(v.get("url"))
+        v["berth"] = berth_label(v.get("url"))
         lines.append(format_vessel_line(v))
     send_telegram("\n".join(lines))
 
@@ -304,6 +371,7 @@ def handle_ship_request(soup, query):
     lines = []
     for v in matches_in_port:
         v["type"] = fetch_vessel_type(v.get("url"))
+        v["berth"] = berth_label(v.get("url"))
         lines.append("📍 Currently in port:")
         lines.append(format_vessel_line(v))
     for v in matches_expected:
@@ -319,7 +387,9 @@ def handle_ship_request(soup, query):
             continue
         seen_names.add(e["vessel"])
         vtype = fetch_vessel_type(e.get("url"))
-        type_txt = f" ({vtype})" if vtype else ""
+        berth = berth_label(e.get("url"))
+        details = ", ".join(filter(None, [berth, vtype]))
+        type_txt = f" ({details})" if details else ""
         icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
         lines.append(f"{icon} (per latest recorded activity):")
         lines.append(f"🚢 {e['vessel']}{type_txt} — {e['time']}")
@@ -357,8 +427,10 @@ def handle_pos_request(soup, query):
             lines.append(f"🚢 {name} — couldn't read live coordinates right now.")
             continue
         maps_link = f"https://maps.google.com/?q={pos['lat']},{pos['lon']}"
+        berth, dist = nearest_berth(pos["lat"], pos["lon"])
+        berth_txt = f"\n⚓ Nearest berth: {berth} (~{dist}m)" if berth else "\n⚓ No berth matched within range"
         lines.append(
-            f"🚢 {name}\n📍 {pos['lat']}, {pos['lon']} (as of {pos['reported']})\n{maps_link}"
+            f"🚢 {name}\n📍 {pos['lat']}, {pos['lon']} (as of {pos['reported']}){berth_txt}\n{maps_link}"
         )
     send_telegram("\n\n".join(lines))
 
@@ -385,6 +457,7 @@ def maybe_send_daily_summary(soup, state):
         lines.append("Vessels in port:")
         for v in in_port:
             v["type"] = fetch_vessel_type(v.get("url"))
+            v["berth"] = berth_label(v.get("url"))
             lines.append(format_vessel_line(v))
 
     send_telegram("\n".join(lines))
@@ -445,7 +518,12 @@ def main():
         icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
         vessel_type = fetch_vessel_type(e.get("url"))
         type_line = f"\n🚢 Type: {vessel_type}" if vessel_type else ""
-        msg = f"{icon}: {e['vessel']}{type_line}\n🕒 Time: {e['time']}\n⚓ Port of Tartous"
+        berth_line = ""
+        if e["event"] == "ARRIVAL":
+            berth = berth_label(e.get("url"))
+            if berth:
+                berth_line = f"\n⚓ {berth}"
+        msg = f"{icon}: {e['vessel']}{type_line}{berth_line}\n🕒 Time: {e['time']}\n⚓ Port of Tartous"
         send_telegram(msg)
 
     state["seen"] = list(seen)
@@ -454,23 +532,4 @@ def main():
     commands = get_new_commands(state)
     for cmd in commands:
         low = cmd.lower()
-        if low.startswith("/inport"):
-            handle_in_port_request(soup)
-        elif low.startswith("/expected"):
-            handle_expected_request(soup)
-        elif low.startswith("/ship"):
-            query = cmd[len("/ship"):].strip()
-            handle_ship_request(soup, query)
-        elif low.startswith("/pos"):
-            query = cmd[len("/pos"):].strip()
-            handle_pos_request(soup, query)
-
-    # 3) daily summary (once per day, around 8 AM Damascus time)
-    if not first_run:
-        maybe_send_daily_summary(soup, state)
-
-    save_state(state)
-
-
-if __name__ == "__main__":
-    main()
+        if low.startswith("/inport"
