@@ -532,4 +532,23 @@ def main():
     commands = get_new_commands(state)
     for cmd in commands:
         low = cmd.lower()
-        if low.startswith("/inport"
+        if low.startswith("/inport"):
+            handle_in_port_request(soup)
+        elif low.startswith("/expected"):
+            handle_expected_request(soup)
+        elif low.startswith("/ship"):
+            query = cmd[len("/ship"):].strip()
+            handle_ship_request(soup, query)
+        elif low.startswith("/pos"):
+            query = cmd[len("/pos"):].strip()
+            handle_pos_request(soup, query)
+
+    # 3) daily summary (once per day, around 8 AM Damascus time)
+    if not first_run:
+        maybe_send_daily_summary(soup, state)
+
+    save_state(state)
+
+
+if __name__ == "__main__":
+    main()
