@@ -172,8 +172,9 @@
     "2026-09-0811:52|DEPARTURE|ATHENAI [GW]",
     "2026-09-0814:31|ARRIVAL|ATHENAI [GW]",
     "2026-09-0815:33|DEPARTURE|AXIS I [TG]",
-    "2026-09-0815:48|ARRIVAL|AXIS I [TG]"
+    "2026-09-0815:48|ARRIVAL|AXIS I [TG]",
+    "2026-09-0905:19|DEPARTURE|GARLAND [PA]"
   ],
   "update_offset": 362578831,
-  "last_summary_date": "2026-09-08"
+  "last_summary_date": "2026-09-09"
 }
