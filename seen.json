@@ -248,8 +248,9 @@
     "2026-09-1618:19|ARRIVAL|NORMAN [TV]",
     "2026-09-1622:32|DEPARTURE|DODO [TG]",
     "2026-09-1622:33|ARRIVAL|DODO [TG]",
-    "2026-09-1713:11|DEPARTURE|DODO [TG]"
+    "2026-09-1713:11|DEPARTURE|DODO [TG]",
+    "2026-09-1722:39|ARRIVAL|JERSEY [TG]"
   ],
   "update_offset": 362578834,
-  "last_summary_date": "2026-09-17"
+  "last_summary_date": "2026-09-18"
 }
