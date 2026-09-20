@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import radians, cos, hypot
 from zoneinfo import ZoneInfo
 
@@ -12,6 +12,7 @@ PORT_URL = "https://www.myshiptracking.com/ports/port-of-tartous-in-sy-syria-id-
 STATE_FILE = "seen.json"
 TZ = ZoneInfo("Asia/Damascus")
 DAILY_SUMMARY_HOUR = 8  # send once, in the 8:00-8:09 run
+EXPECTED_UPDATE_INTERVAL = timedelta(hours=3)  # auto-send expected list this often
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 # Supports one or more chat IDs, comma-separated, e.g. "111111,222222"
@@ -243,11 +244,18 @@ def load_state():
             data = json.load(f)
             if isinstance(data, list):
                 # old format migration
-                return {"seen": data, "update_offset": 0, "last_summary_date": ""}
+                return {
+                    "seen": data, "update_offset": 0,
+                    "last_summary_date": "", "last_expected_sent": "",
+                }
             data.setdefault("update_offset", 0)
             data.setdefault("last_summary_date", "")
+            data.setdefault("last_expected_sent", "")
             return data
-    return {"seen": [], "update_offset": 0, "last_summary_date": ""}
+    return {
+        "seen": [], "update_offset": 0,
+        "last_summary_date": "", "last_expected_sent": "",
+    }
 
 
 def save_state(state):
@@ -464,6 +472,35 @@ def maybe_send_daily_summary(soup, state):
     state["last_summary_date"] = today_str
 
 
+def maybe_send_expected_update(soup, state):
+    """Auto-send the expected-arrivals list roughly every
+    EXPECTED_UPDATE_INTERVAL, tracked by elapsed time rather than a fixed
+    clock slot - so it isn't skipped if GitHub's free schedule runs late."""
+    now = datetime.now(TZ)
+    last_sent = state.get("last_expected_sent") or ""
+    if last_sent:
+        try:
+            last_dt = datetime.fromisoformat(last_sent)
+            if now - last_dt < EXPECTED_UPDATE_INTERVAL:
+                return
+        except ValueError:
+            pass  # bad/old value - treat as never sent
+
+    vessels = fetch_expected(soup)
+    lines = [f"🕒 Expected Arrivals update - Port of Tartous ({now.strftime('%Y-%m-%d %H:%M')})\n"]
+    if not vessels:
+        lines.append("No expected arrivals currently listed.")
+    else:
+        for v in vessels:
+            vtype = fetch_vessel_type(v.get("url"))
+            type_txt = f" ({vtype})" if vtype else ""
+            eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
+            lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
+
+    send_telegram("\n".join(lines))
+    state["last_expected_sent"] = now.isoformat()
+
+
 def page_looks_valid(soup):
     """Basic sanity check: bail out if the fetched page looks broken/empty
     (e.g. a temporary site glitch) rather than trusting bad data."""
@@ -546,6 +583,10 @@ def main():
     # 3) daily summary (once per day, around 8 AM Damascus time)
     if not first_run:
         maybe_send_daily_summary(soup, state)
+
+    # 4) expected-arrivals auto-update (roughly every 3 hours)
+    if not first_run:
+        maybe_send_expected_update(soup, state)
 
     save_state(state)
 
