@@ -259,9 +259,12 @@
     "2026-09-1919:15|DEPARTURE|BLACK SEA [KM]",
     "2026-09-2014:08|DEPARTURE|MERCY [KN]",
     "2026-09-2014:14|ARRIVAL|MERCY [KN]",
-    "2026-09-2018:59|DEPARTURE|LOS AMIGOS [KN]"
+    "2026-09-2018:59|DEPARTURE|LOS AMIGOS [KN]",
+    "2026-09-2103:49|ARRIVAL|TAJ [TG]",
+    "2026-09-2104:00|DEPARTURE|TAJ [TG]",
+    "2026-09-2104:28|ARRIVAL|BRITTA-K [KM]"
   ],
   "update_offset": 362578837,
-  "last_summary_date": "2026-09-20",
-  "last_expected_sent": "2026-09-21T02:39:06.687784+03:00"
+  "last_summary_date": "2026-09-21",
+  "last_expected_sent": "2026-09-21T10:05:03.366799+03:00"
 }
