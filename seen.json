@@ -262,9 +262,10 @@
     "2026-09-2018:59|DEPARTURE|LOS AMIGOS [KN]",
     "2026-09-2103:49|ARRIVAL|TAJ [TG]",
     "2026-09-2104:00|DEPARTURE|TAJ [TG]",
-    "2026-09-2104:28|ARRIVAL|BRITTA-K [KM]"
+    "2026-09-2104:28|ARRIVAL|BRITTA-K [KM]",
+    "2026-09-2112:36|ARRIVAL|CATIVERA [PA]"
   ],
   "update_offset": 362578837,
   "last_summary_date": "2026-09-21",
-  "last_expected_sent": "2026-09-21T10:05:03.366799+03:00"
+  "last_expected_sent": "2026-09-21T16:57:06.385043+03:00"
 }
