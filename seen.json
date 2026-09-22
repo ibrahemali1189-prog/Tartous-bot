@@ -264,9 +264,10 @@
     "2026-09-2104:00|DEPARTURE|TAJ [TG]",
     "2026-09-2104:28|ARRIVAL|BRITTA-K [KM]",
     "2026-09-2112:36|ARRIVAL|CATIVERA [PA]",
-    "2026-09-2118:45|DEPARTURE|BRITTA-K [KM]"
+    "2026-09-2118:45|DEPARTURE|BRITTA-K [KM]",
+    "2026-09-2206:21|ARRIVAL|ADEL [KN]"
   ],
   "update_offset": 362578837,
   "last_summary_date": "2026-09-22",
-  "last_expected_sent": "2026-09-22T18:05:20.270691+03:00"
+  "last_expected_sent": "2026-09-22T21:46:32.298678+03:00"
 }
