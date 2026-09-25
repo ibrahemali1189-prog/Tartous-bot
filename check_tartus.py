@@ -11,11 +11,10 @@ from bs4 import BeautifulSoup
 PORT_URL = "https://www.myshiptracking.com/ports/port-of-tartous-in-sy-syria-id-3148"
 STATE_FILE = "seen.json"
 TZ = ZoneInfo("Asia/Damascus")
-DAILY_SUMMARY_HOUR = 8  # send once, in the 8:00-8:09 run
-EXPECTED_UPDATE_INTERVAL = timedelta(hours=3)  # auto-send expected list this often
+DAILY_SUMMARY_HOUR = 8
+EXPECTED_UPDATE_INTERVAL = timedelta(hours=3)
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-# Supports one or more chat IDs, comma-separated, e.g. "111111,222222"
 CHAT_IDS = [c.strip() for c in os.environ["TELEGRAM_CHAT_ID"].split(",") if c.strip()]
 
 HEADERS = {
@@ -25,9 +24,6 @@ HEADERS = {
     )
 }
 
-# Berth reference lines for the Port of Tartous, each defined by two
-# (lat, lon) endpoints (base -> head), calibrated from Google Maps.
-# Berth 13 and 22 run crosswise, connecting the other piers.
 BERTHS = {
     "4": ((34.910513, 35.869054), (34.908821, 35.862661)),
     "7": ((34.909062, 35.869411), (34.907714, 35.864136)),
@@ -37,14 +33,11 @@ BERTHS = {
     "14": ((34.904985, 35.873420), (34.902955, 35.865103)),
     "22": ((34.900927, 35.872745), (34.900384, 35.872566)),
 }
-_BERTH_MAX_DISTANCE_M = 120  # beyond this, don't claim a berth match
-
-_REF_LAT = 34.905  # local reference latitude for the flat-earth projection
+_BERTH_MAX_DISTANCE_M = 120
+_REF_LAT = 34.905
 
 
 def _to_xy(lat, lon):
-    """Rough local equirectangular projection to meters, good enough for
-    the small area spanned by the port."""
     x = (lon - 35.868) * 111320 * cos(radians(_REF_LAT))
     y = (lat - _REF_LAT) * 110540
     return x, y
@@ -61,8 +54,6 @@ def _point_segment_distance(px, py, x1, y1, x2, y2):
 
 
 def nearest_berth(lat, lon):
-    """Return (berth_name, distance_meters) for the closest known berth
-    line, or (None, None) if too far from any of them to be confident."""
     try:
         px, py = _to_xy(float(lat), float(lon))
     except (TypeError, ValueError):
@@ -79,15 +70,25 @@ def nearest_berth(lat, lon):
     return None, None
 
 
-def fetch_page():
-    resp = requests.get(PORT_URL, headers=HEADERS, timeout=30)
+def extract_vessel_id(url):
+    if not url:
+        return None
+    match = re.search(r"-id-(\d+)", url)
+    if match:
+        return match.group(1)
+    match_mmsi = re.search(r"mmsi-(\d+)", url)
+    return match_mmsi.group(1) if match_mmsi else None
+
+
+def fetch_page(url=PORT_URL):
+    resp = requests.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
     return BeautifulSoup(resp.text, "html.parser")
 
 
 def fetch_activity(soup):
-    """Scrape the ARRIVAL/DEPARTURE activity table from the port page."""
     events = []
+    today_date = datetime.now(TZ).strftime("%Y-%m-%d")
     for tr in soup.find_all("tr"):
         text = tr.get_text(" ", strip=True)
         if "ARRIVAL" not in text and "DEPARTURE" not in text:
@@ -104,7 +105,11 @@ def fetch_activity(soup):
         vessel_url = link["href"] if link and link.get("href") else None
         if vessel_url and vessel_url.startswith("/"):
             vessel_url = "https://www.myshiptracking.com" + vessel_url
-        key = f"{time_txt}|{event_txt}|{vessel_txt}"
+
+        v_id = extract_vessel_id(vessel_url) or vessel_txt
+        # المفتاح المحمي بالرقم والتاريخ لضمان التحديثات للرحلات المستقبليّة
+        key = f"{today_date}|{v_id}|{event_txt}"
+
         events.append({
             "key": key, "time": time_txt, "event": event_txt,
             "vessel": vessel_txt, "url": vessel_url,
@@ -113,8 +118,6 @@ def fetch_activity(soup):
 
 
 def fetch_vessel_type(vessel_url):
-    """Look up a vessel's type (e.g. 'Oil Products Tanker', 'Livestock
-    Carrier') from its detail page. Returns None if unavailable."""
     if not vessel_url:
         return None
     try:
@@ -132,8 +135,6 @@ def fetch_vessel_type(vessel_url):
 
 
 def fetch_vessel_position(vessel_url):
-    """Look up a vessel's live coordinates and report time from its detail
-    page. Returns a dict with lat, lon, reported (text) or None."""
     if not vessel_url:
         return None
     try:
@@ -141,10 +142,6 @@ def fetch_vessel_position(vessel_url):
         resp.raise_for_status()
         vsoup = BeautifulSoup(resp.text, "html.parser")
 
-        # Prefer the most recent row of the "Events" table - it's logged
-        # more granularly than the general "current position" summary,
-        # which can be stale if the AIS signal briefly dropped (common
-        # near berths, blocked by cranes/buildings).
         for table in vsoup.find_all("table"):
             headers = [th.get_text(strip=True) for th in table.find_all("th")]
             if "Time" in headers and "Event" in headers:
@@ -160,7 +157,6 @@ def fetch_vessel_position(vessel_url):
                             return {"lat": lat, "lon": lon, "reported": time_txt}
                 break
 
-        # Fall back to the general "current position" narrative sentence
         text = vsoup.get_text(" ", strip=True)
         match = re.search(
             r"coordinates\s+(-?\d+\.\d+)\s*[°]?\s*/\s*(-?\d+\.\d+)\s*[°]?\s*"
@@ -176,9 +172,6 @@ def fetch_vessel_position(vessel_url):
 
 
 def _parse_table_by_headers(soup, required_headers):
-    """Generic helper: find a table whose <th> headers contain all of
-    required_headers, and return (headers, list_of_rows) where each row is
-    a list of (text, href) tuples per cell."""
     for table in soup.find_all("table"):
         headers = [th.get_text(strip=True) for th in table.find_all("th")]
         if all(h in headers for h in required_headers):
@@ -201,28 +194,45 @@ def _parse_table_by_headers(soup, required_headers):
 
 
 def fetch_in_port(soup):
-    """Scrape the 'Vessels In Port' table, including DWT (cargo capacity)."""
     headers, rows = _parse_table_by_headers(soup, ["Vessel", "Arrived"])
     vessels = []
+    
     for row in rows:
         rowmap = dict(zip(headers, row))
         name, url = rowmap.get("Vessel", ("", None))
         if not name:
             continue
         vessels.append({
-            "name": name,
-            "url": url,
+            "name": name, "url": url,
             "arrived": rowmap.get("Arrived", ("", None))[0],
             "dwt": rowmap.get("DWT", ("", None))[0],
             "grt": rowmap.get("GRT", ("", None))[0],
             "built": rowmap.get("Built", ("", None))[0],
             "size": rowmap.get("Size", ("", None))[0],
+            "area": "Port Berth"
         })
+
+    anc_headers, anc_rows = _parse_table_by_headers(soup, ["Vessel", "Area"])
+    if not anc_rows:
+        anc_headers, anc_rows = _parse_table_by_headers(soup, ["Vessel", "Anchored"])
+
+    for row in anc_rows:
+        rowmap = dict(zip(anc_headers, row))
+        name, url = rowmap.get("Vessel", ("", None))
+        if not name or any(v["name"] == name for v in vessels):
+            continue
+        vessels.append({
+            "name": name, "url": url,
+            "arrived": rowmap.get("Anchored", rowmap.get("Arrived", ("", None)))[0],
+            "dwt": rowmap.get("DWT", ("", None))[0],
+            "built": rowmap.get("Built", ("", None))[0],
+            "area": "Anchorage Zone"
+        })
+
     return vessels
 
 
 def fetch_expected(soup):
-    """Scrape the 'Expected Arrivals' table from the port page."""
     headers, rows = _parse_table_by_headers(soup, ["Vessel", "Estimated Arrival"])
     vessels = []
     for row in rows:
@@ -231,8 +241,7 @@ def fetch_expected(soup):
         if not name:
             continue
         vessels.append({
-            "name": name,
-            "url": url,
+            "name": name, "url": url,
             "eta": rowmap.get("Estimated Arrival", ("", None))[0],
         })
     return vessels
@@ -243,7 +252,6 @@ def load_state():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, list):
-                # old format migration
                 return {
                     "seen": data, "update_offset": 0,
                     "last_summary_date": "", "last_expected_sent": "",
@@ -271,37 +279,7 @@ def send_telegram(msg):
         r.raise_for_status()
 
 
-def get_new_commands(state):
-    """Check for new commands sent to the bot since the last run.
-    Accepts commands from any of the configured chat IDs."""
-    offset = state.get("update_offset", 0)
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    params = {"offset": offset + 1, "timeout": 0}
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-
-    commands = []
-    max_id = offset
-    for update in data.get("result", []):
-        max_id = max(max_id, update["update_id"])
-        msg = update.get("message", {})
-        text = msg.get("text", "").strip()
-        chat_id = str(msg.get("chat", {}).get("id", ""))
-        if chat_id not in CHAT_IDS:
-            continue
-        low = text.lower()
-        if (low.startswith("/inport") or low.startswith("/expected")
-                or low.startswith("/ship") or low.startswith("/pos")):
-            commands.append(text)
-
-    state["update_offset"] = max_id
-    return commands
-
-
 def berth_label(vessel_url):
-    """Fetch a vessel's live position and return a 'Berth N' label if it
-    matches one of our known berth lines, else None."""
     pos = fetch_vessel_position(vessel_url)
     if not pos:
         return None
@@ -311,154 +289,30 @@ def berth_label(vessel_url):
 
 def format_vessel_line(v):
     extra = []
+    if v.get("area"):
+        extra.append(v["area"])
     if v.get("berth"):
         extra.append(v["berth"])
     if v.get("type"):
         extra.append(v["type"])
     if v.get("dwt"):
         extra.append(f"cargo: {v['dwt']}")
-    if v.get("built"):
-        extra.append(f"built: {v['built']}")
     extra_txt = f" ({', '.join(extra)})" if extra else ""
     arrived_txt = f" — arrived: {v['arrived']}" if v.get("arrived") else ""
     return f"🚢 {v['name']}{arrived_txt}{extra_txt}"
 
 
-def handle_in_port_request(soup):
-    vessels = fetch_in_port(soup)
-    if not vessels:
-        send_telegram("Couldn't fetch the current vessel list right now, try again shortly.")
-        return
-    lines = ["⚓ Vessels currently in the Port of Tartous:\n"]
-    for v in vessels:
-        v["type"] = fetch_vessel_type(v.get("url"))
-        v["berth"] = berth_label(v.get("url"))
-        lines.append(format_vessel_line(v))
-    send_telegram("\n".join(lines))
-
-
-def handle_expected_request(soup):
-    vessels = fetch_expected(soup)
-    if not vessels:
-        send_telegram("No expected arrivals currently listed for the Port of Tartous.")
-        return
-    lines = ["🕒 Vessels expected to arrive at the Port of Tartous:\n"]
-    for v in vessels:
-        vtype = fetch_vessel_type(v.get("url"))
-        type_txt = f" ({vtype})" if vtype else ""
-        eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
-        lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
-    send_telegram("\n".join(lines))
-
-
-
-def handle_ship_request(soup, query):
-    query = query.strip().lower()
-    if not query:
-        send_telegram("Add a ship name after the command, e.g.: /ship EVER GIVEN")
-        return
-
-    in_port = fetch_in_port(soup)
-    expected = fetch_expected(soup)
-    activity = fetch_activity(soup)
-
-    matches_in_port = [v for v in in_port if query in v["name"].lower()]
-    matches_expected = [v for v in expected if query in v["name"].lower()]
-    # fallback: search recent activity log too, since the in-port table on
-    # the main page only shows the first ~10 vessels out of the full count
-    matches_activity = [
-        e for e in activity
-        if query in e["vessel"].lower()
-        and e["vessel"].lower() not in {v["name"].lower() for v in matches_in_port}
-    ]
-
-    if not matches_in_port and not matches_expected and not matches_activity:
-        send_telegram(f"No vessel matching \"{query}\" found for the Port of Tartous right now.")
-        return
-
-    lines = []
-    for v in matches_in_port:
-        v["type"] = fetch_vessel_type(v.get("url"))
-        v["berth"] = berth_label(v.get("url"))
-        lines.append("📍 Currently in port:")
-        lines.append(format_vessel_line(v))
-    for v in matches_expected:
-        vtype = fetch_vessel_type(v.get("url"))
-        type_txt = f" ({vtype})" if vtype else ""
-        eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
-        lines.append("🕒 Expected to arrive:")
-        lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
-    # de-duplicate activity matches by vessel name, keep most recent only
-    seen_names = set()
-    for e in matches_activity:
-        if e["vessel"] in seen_names:
-            continue
-        seen_names.add(e["vessel"])
-        vtype = fetch_vessel_type(e.get("url"))
-        berth = berth_label(e.get("url"))
-        details = ", ".join(filter(None, [berth, vtype]))
-        type_txt = f" ({details})" if details else ""
-        icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
-        lines.append(f"{icon} (per latest recorded activity):")
-        lines.append(f"🚢 {e['vessel']}{type_txt} — {e['time']}")
-    send_telegram("\n".join(lines))
-
-
-def handle_pos_request(soup, query):
-    """Find a vessel by (partial) name and report its live coordinates,
-    used for manually calibrating berth positions."""
-    query = query.strip().lower()
-    if not query:
-        send_telegram("Add a ship name after the command, e.g.: /pos AXIS I")
-        return
-
-    in_port = fetch_in_port(soup)
-    expected = fetch_expected(soup)
-    activity = fetch_activity(soup)
-
-    candidates = {}
-    for v in in_port + expected:
-        if query in v["name"].lower() and v.get("url"):
-            candidates[v["name"]] = v["url"]
-    for e in activity:
-        if query in e["vessel"].lower() and e.get("url"):
-            candidates.setdefault(e["vessel"], e["url"])
-
-    if not candidates:
-        send_telegram(f"No vessel matching \"{query}\" found for the Port of Tartous right now.")
-        return
-
-    lines = []
-    for name, url in candidates.items():
-        pos = fetch_vessel_position(url)
-        if not pos:
-            lines.append(f"🚢 {name} — couldn't read live coordinates right now.")
-            continue
-        maps_link = f"https://maps.google.com/?q={pos['lat']},{pos['lon']}"
-        berth, dist = nearest_berth(pos["lat"], pos["lon"])
-        berth_txt = f"\n⚓ Nearest berth: {berth} (~{dist}m)" if berth else "\n⚓ No berth matched within range"
-        lines.append(
-            f"🚢 {name}\n📍 {pos['lat']}, {pos['lon']} (as of {pos['reported']}){berth_txt}\n{maps_link}"
-        )
-    send_telegram("\n\n".join(lines))
-
-
 def maybe_send_daily_summary(soup, state):
     now = datetime.now(TZ)
     today_str = now.strftime("%Y-%m-%d")
-    # send on the first run of the day at/after the target hour, rather than
-    # requiring an exact hour match - free GitHub Actions schedules can run
-    # late by hours, so a strict match can skip the day entirely
-    if now.hour < DAILY_SUMMARY_HOUR:
-        return
-    if state.get("last_summary_date") == today_str:
+    if now.hour < DAILY_SUMMARY_HOUR or state.get("last_summary_date") == today_str:
         return
 
     in_port = fetch_in_port(soup)
     expected = fetch_expected(soup)
 
     lines = [f"📋 Daily Summary - Port of Tartous ({today_str})\n"]
-    lines.append(f"⚓ Vessels currently in port: {len(in_port)}")
+    lines.append(f"⚓ Vessels currently in port/anchorage: {len(in_port)}")
     lines.append(f"🕒 Vessels expected to arrive: {len(expected)}\n")
 
     if in_port:
@@ -473,9 +327,6 @@ def maybe_send_daily_summary(soup, state):
 
 
 def maybe_send_expected_update(soup, state):
-    """Auto-send the expected-arrivals list roughly every
-    EXPECTED_UPDATE_INTERVAL, tracked by elapsed time rather than a fixed
-    clock slot - so it isn't skipped if GitHub's free schedule runs late."""
     now = datetime.now(TZ)
     last_sent = state.get("last_expected_sent") or ""
     if last_sent:
@@ -484,7 +335,7 @@ def maybe_send_expected_update(soup, state):
             if now - last_dt < EXPECTED_UPDATE_INTERVAL:
                 return
         except ValueError:
-            pass  # bad/old value - treat as never sent
+            pass
 
     vessels = fetch_expected(soup)
     lines = [f"🕒 Expected Arrivals update - Port of Tartous ({now.strftime('%Y-%m-%d %H:%M')})\n"]
@@ -502,8 +353,6 @@ def maybe_send_expected_update(soup, state):
 
 
 def page_looks_valid(soup):
-    """Basic sanity check: bail out if the fetched page looks broken/empty
-    (e.g. a temporary site glitch) rather than trusting bad data."""
     text = soup.get_text()
     if "No Internet" in text and "Vessels In Port" not in text:
         return False
@@ -512,81 +361,37 @@ def page_looks_valid(soup):
 
 def main():
     soup = fetch_page()
-
     if not page_looks_valid(soup):
-        # site returned a broken/incomplete page this run - skip everything
-        # rather than risk sending false notifications, try again next run
         return
 
     state = load_state()
     seen = set(state.get("seen", []))
     first_run = len(seen) == 0
 
-    in_port_names = {v["name"].lower() for v in fetch_in_port(soup)}
-
-    # 1) check for new ships arriving/leaving
     events = fetch_activity(soup)
     new_events = [e for e in events if e["key"] not in seen]
 
-    # Confirm any candidate notifications with a second, independent fetch
-    # a few seconds later - only report events that show up consistently in
-    # both, to filter out transient site glitches (e.g. a broken page load).
-    confirmed_keys = set()
     if new_events and not first_run:
         soup2 = fetch_page()
         if page_looks_valid(soup2):
-            confirmed_keys = {e2["key"] for e2 in fetch_activity(soup2)}
+            events2 = {e["key"] for e in fetch_activity(soup2)}
+            for e in new_events:
+                if e["key"] in events2:
+                    vtype = fetch_vessel_type(e.get("url"))
+                    type_txt = f" ({vtype})" if vtype else ""
+                    icon = "🟢 ARRIVAL" if e["event"] == "ARRIVAL" else "🔴 DEPARTURE"
+                    msg = f"{icon}: 🚢 {e['vessel']}{type_txt}\n⏱ {e['time']}"
+                    send_telegram(msg)
+                    seen.add(e["key"])
 
-    for e in reversed(new_events):  # oldest first
-        if not first_run and e["key"] not in confirmed_keys:
-            continue  # didn't reappear on the confirmation fetch - retry next run
-
-        if first_run:
+    if first_run:
+        for e in events:
             seen.add(e["key"])
-            continue  # don't spam on the very first run, just record history
-
-        # extra sanity check: if the source claims a vessel departed but it's
-        # still listed as in-port right now, treat it as a bad scrape and
-        # retry next run instead of trusting it.
-        if e["event"] == "DEPARTURE" and e["vessel"].lower() in in_port_names:
-            continue
-
-        seen.add(e["key"])
-        icon = "🟢 Arrived" if e["event"] == "ARRIVAL" else "🔴 Departed"
-        vessel_type = fetch_vessel_type(e.get("url"))
-        type_line = f"\n🚢 Type: {vessel_type}" if vessel_type else ""
-        berth_line = ""
-        if e["event"] == "ARRIVAL":
-            berth = berth_label(e.get("url"))
-            if berth:
-                berth_line = f"\n⚓ {berth}"
-        msg = f"{icon}: {e['vessel']}{type_line}{berth_line}\n🕒 Time: {e['time']}\n⚓ Port of Tartous"
-        send_telegram(msg)
 
     state["seen"] = list(seen)
 
-    # 2) check if the user sent a command
-    commands = get_new_commands(state)
-    for cmd in commands:
-        low = cmd.lower()
-        if low.startswith("/inport"):
-            handle_in_port_request(soup)
-        elif low.startswith("/expected"):
-            handle_expected_request(soup)
-        elif low.startswith("/ship"):
-            query = cmd[len("/ship"):].strip()
-            handle_ship_request(soup, query)
-        elif low.startswith("/pos"):
-            query = cmd[len("/pos"):].strip()
-            handle_pos_request(soup, query)
-
-    # 3) daily summary (once per day, around 8 AM Damascus time)
-    if not first_run:
-        maybe_send_daily_summary(soup, state)
-
-    # 4) expected-arrivals auto-update (roughly every 3 hours)
-    if not first_run:
-        maybe_send_expected_update(soup, state)
+    maybe_send_daily_summary(soup, state)
+    maybe_send_expected_update(soup, state)
 
     save_state(state)
 
