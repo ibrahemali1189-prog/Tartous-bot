@@ -13,6 +13,7 @@ PORT_URL = "https://www.myshiptracking.com/ports/port-of-tartous-in-sy-syria-id-
 STATE_FILE = "seen.json"
 TZ = ZoneInfo("Asia/Damascus")
 DAILY_SUMMARY_HOUR = 8
+ZONE_DAILY_SUMMARY_HOUR = 7
 EXPECTED_UPDATE_INTERVAL = timedelta(hours=3)
 
 logging.basicConfig(
@@ -59,7 +60,7 @@ def bounding_box(center_lat, center_lon, km_north=0, km_south=0, km_west=0, km_e
 # Custom watch zone: 2km north + 2km south of the center point, and 4km west
 # of it (no eastward extension, so the east edge sits on the center point's
 # own longitude). Adjust the numbers here if the zone needs to change.
-ZONE_A_LABEL = "المنطقة المراقبة"
+ZONE_A_LABEL = "الياطر"
 ZONE_A = bounding_box(34.907124, 35.853418, km_north=2, km_south=2, km_west=4, km_east=0)
 
 
@@ -308,17 +309,20 @@ def load_state():
                 return {
                     "seen": data, "update_offset": 0,
                     "last_summary_date": "", "last_expected_sent": "",
+                    "last_zone_summary_date": "",
                     "pending": {}, "zone_vessels": {},
                 }
             data.setdefault("update_offset", 0)
             data.setdefault("last_summary_date", "")
             data.setdefault("last_expected_sent", "")
+            data.setdefault("last_zone_summary_date", "")
             data.setdefault("pending", {})
             data.setdefault("zone_vessels", {})
             return data
     return {
         "seen": [], "update_offset": 0,
         "last_summary_date": "", "last_expected_sent": "",
+        "last_zone_summary_date": "",
         "pending": {}, "zone_vessels": {},
     }
 
@@ -491,13 +495,15 @@ def gather_tracked_vessels(soup):
 
 def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
     """Notify once per entry when a tracked vessel's latest reported
-    position falls inside `zone`. Uses state['zone_vessels'] as a set of
-    vessel ids currently considered 'inside', so the same vessel doesn't
-    trigger a new alert every run while it stays there — only on entry.
-    When it later reports a position outside the zone, it's cleared, so a
-    future re-entry will alert again."""
+    position falls inside `zone`. Uses state['zone_vessels'] as a dict of
+    vessel_id -> {name, url, entered_at}, so the same vessel doesn't trigger
+    a new alert every run while it stays there — only on entry. When it
+    later reports a position outside the zone, it's cleared, so a future
+    re-entry will alert again. The stored name/url/entered_at is also reused
+    by maybe_send_zone_daily_summary() to list who's currently inside."""
     zone_state = state.setdefault("zone_vessels", {})
     currently_inside = set()
+    now_iso = datetime.now(TZ).isoformat()
 
     for vid, name, url in gather_tracked_vessels(soup):
         details = fetch_vessel_details(url)
@@ -506,13 +512,17 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
         if point_in_zone(details["lat"], details["lon"], zone):
             currently_inside.add(vid)
             if vid not in zone_state:
+                berth = berth_label(details)
+                berth_txt = f"\n⚓ {berth}" if berth else ""
+                type_txt = f" ({details['type']})" if details["type"] else ""
                 msg = (
                     f"🟡 دخول سفينة إلى {zone_label}\n"
-                    f"🚢 {name}\n"
+                    f"🚢 {name}{type_txt}\n"
                     f"📍 {details['lat']}, {details['lon']} "
-                    f"(آخر تحديث: {details.get('reported') or '—'})"
+                    f"(آخر تحديث: {details.get('reported') or '—'}){berth_txt}"
                 )
                 send_telegram(msg)
+                zone_state[vid] = {"name": name, "url": url, "entered_at": now_iso}
 
     # Vessels that were inside before but aren't anymore have left the zone;
     # drop them so a later re-entry can alert again.
@@ -520,135 +530,5 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
         if vid not in currently_inside:
             zone_state.pop(vid, None)
 
-    for vid in currently_inside:
-        zone_state[vid] = True
 
-
-def handle_commands(soup, state):
-    """Check for any new Telegram messages since the last run and reply to
-    recognized commands. Only messages coming from a chat id already in
-    CHAT_IDS are honored, so a random person who finds the bot can't trigger
-    it. Because this whole script only runs every 15 minutes, replies are
-    not instant — they go out on the next scheduled run after the command
-    was sent."""
-    offset = state.get("update_offset", 0)
-    updates = fetch_telegram_updates(offset)
-    if not updates:
-        return
-
-    highest_id = offset - 1
-    for update in updates:
-        update_id = update.get("update_id")
-        if update_id is not None and update_id > highest_id:
-            highest_id = update_id
-
-        message = update.get("message") or update.get("channel_post")
-        if not message:
-            continue
-
-        text = (message.get("text") or "").strip()
-        if not text.startswith("/"):
-            continue
-
-        chat_id = str(message.get("chat", {}).get("id", ""))
-        if chat_id not in CHAT_IDS:
-            logger.warning("Ignoring command from unrecognized chat_id %s", chat_id)
-            continue
-
-        # Strip a "@BotUsername" suffix, which Telegram adds automatically
-        # for commands sent in group chats.
-        command = text.split()[0].split("@")[0].lower()
-
-        if command == "/expected":
-            reply = build_expected_message(soup, header="🕒 Expected Arrivals (on demand)")
-            send_telegram_reply(chat_id, reply)
-        else:
-            logger.info("Received unrecognized command: %s", command)
-
-    if highest_id >= offset:
-        state["update_offset"] = highest_id + 1
-
-
-def page_looks_valid(soup):
-    if soup is None:
-        return False
-    text = soup.get_text()
-    if "No Internet" in text and "Vessels In Port" not in text:
-        return False
-    return True
-
-
-# How many consecutive "seen once, not confirmed" cycles we tolerate before
-# giving up on an event and treating it as seen anyway (so it doesn't loop
-# forever waiting for a confirmation that will never come).
-MAX_PENDING_RETRIES = 3
-
-
-def main():
-    soup = fetch_page()
-    if not page_looks_valid(soup):
-        logger.warning("Page did not look valid on this run; skipping.")
-        return
-
-    state = load_state()
-    handle_commands(soup, state)
-    # Use a dict as an ordered set: preserves the real order keys were
-    # first seen in, so pruning later (save_state) drops the oldest ones
-    # instead of an arbitrary/alphabetical selection.
-    seen = dict.fromkeys(state.get("seen", []))
-    pending = state.get("pending", {})
-    first_run = len(seen) == 0
-
-    events = fetch_activity(soup)
-    new_events = [e for e in events if e["key"] not in seen]
-
-    if new_events and not first_run:
-        soup2 = fetch_page()
-        if page_looks_valid(soup2):
-            events2 = {e["key"] for e in fetch_activity(soup2)}
-            for e in new_events:
-                if e["key"] in events2:
-                    # Confirmed on the second pass: send notification.
-                    details = fetch_vessel_details(e.get("url"))
-                    type_txt = f" ({details['type']})" if details["type"] else ""
-                    icon = "🟢 ARRIVAL" if e["event"] == "ARRIVAL" else "🔴 DEPARTURE"
-                    msg = f"{icon}: 🚢 {e['vessel']}{type_txt}\n⏱ {e['time']}"
-                    send_telegram(msg)
-                    seen[e["key"]] = None
-                    pending.pop(e["key"], None)
-                else:
-                    # Not confirmed this time. Track how many times this has
-                    # happened; if it keeps failing to confirm, drop it into
-                    # "seen" anyway so it doesn't resurface and get sent as a
-                    # (possibly stale/duplicate) notification later.
-                    attempts = pending.get(e["key"], 0) + 1
-                    if attempts >= MAX_PENDING_RETRIES:
-                        logger.warning(
-                            "Event %s never confirmed after %d attempts; "
-                            "marking as seen without notifying.",
-                            e["key"], attempts,
-                        )
-                        seen[e["key"]] = None
-                        pending.pop(e["key"], None)
-                    else:
-                        pending[e["key"]] = attempts
-        else:
-            logger.warning("Second-pass fetch failed; will retry unconfirmed events next run.")
-
-    if first_run:
-        for e in events:
-            seen[e["key"]] = None
-
-    state["seen"] = list(seen)
-    state["pending"] = pending
-
-    check_zone_entries(soup, state)
-
-    maybe_send_daily_summary(soup, state)
-    maybe_send_expected_update(soup, state)
-
-    save_state(state)
-
-
-if __name__ == "__main__":
-    main()
+def build_zone_summar
