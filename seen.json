@@ -315,7 +315,12 @@
   "last_expected_sent": "2026-09-26T14:38:50.829182+03:00",
   "pending": {},
   "zone_vessels": {
-    "636021738": true
+    "636021738": true,
+    "314918000": {
+      "name": "AK LIZA [BB]",
+      "url": "https://www.myshiptracking.com/vessels/ak-liza-mmsi-314918000-imo-9300855",
+      "entered_at": "2026-09-26T15:02:49.983770+03:00"
+    }
   },
   "last_zone_summary_date": "2026-09-26"
 }
