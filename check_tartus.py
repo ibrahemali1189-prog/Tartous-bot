@@ -351,6 +351,36 @@ def send_telegram(msg, reply_markup=None):
             logger.error("Failed to send Telegram message to %s: %s", chat_id, exc)
 
 
+def send_telegram_reply(chat_id, msg):
+    """Send a message to a single chat (used to reply to a command), as
+    opposed to send_telegram() which broadcasts to every configured chat."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    try:
+        r = requests.post(url, data={"chat_id": chat_id, "text": msg}, timeout=30)
+        r.raise_for_status()
+    except requests.RequestException as exc:
+        logger.error("Failed to send Telegram reply to %s: %s", chat_id, exc)
+
+
+def fetch_telegram_updates(offset):
+    """Poll Telegram for any messages sent to the bot since `offset`.
+    timeout=0 makes this a quick, non-blocking call (we don't need
+    long-polling since this whole script re-runs every 15 minutes anyway)."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    params = {"offset": offset, "timeout": 0}
+    try:
+        r = requests.get(url, params=params, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        if not data.get("ok"):
+            logger.warning("Telegram getUpdates returned not-ok response: %s", data)
+            return []
+        return data.get("result", [])
+    except requests.RequestException as exc:
+        logger.error("Failed to fetch Telegram updates: %s", exc)
+        return []
+
+
 def berth_label(vessel_details):
     lat, lon = vessel_details.get("lat"), vessel_details.get("lon")
     if lat is None or lon is None:
@@ -399,6 +429,24 @@ def maybe_send_daily_summary(soup, state):
     state["last_summary_date"] = today_str
 
 
+def build_expected_message(soup, header="🕒 Expected Arrivals"):
+    """Format the current expected-arrivals list. Shared by the scheduled
+    broadcast (maybe_send_expected_update) and the on-demand /expected
+    command (handle_commands) so both stay in sync."""
+    now = datetime.now(TZ)
+    vessels = fetch_expected(soup)
+    lines = [f"{header} - Port of Tartous ({now.strftime('%Y-%m-%d %H:%M')})\n"]
+    if not vessels:
+        lines.append("لا يوجد سفن متوقع وصولها حالياً.")
+    else:
+        for v in vessels:
+            details = fetch_vessel_details(v.get("url"))
+            type_txt = f" ({details['type']})" if details["type"] else ""
+            eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
+            lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
+    return "\n".join(lines)
+
+
 def maybe_send_expected_update(soup, state):
     now = datetime.now(TZ)
     last_sent = state.get("last_expected_sent") or ""
@@ -410,18 +458,7 @@ def maybe_send_expected_update(soup, state):
         except ValueError:
             pass
 
-    vessels = fetch_expected(soup)
-    lines = [f"🕒 Expected Arrivals update - Port of Tartous ({now.strftime('%Y-%m-%d %H:%M')})\n"]
-    if not vessels:
-        lines.append("No expected arrivals currently listed.")
-    else:
-        for v in vessels:
-            details = fetch_vessel_details(v.get("url"))
-            type_txt = f" ({details['type']})" if details["type"] else ""
-            eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
-            lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
-
-    send_telegram("\n".join(lines))
+    send_telegram(build_expected_message(soup))
     state["last_expected_sent"] = now.isoformat()
 
 
@@ -487,6 +524,51 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
         zone_state[vid] = True
 
 
+def handle_commands(soup, state):
+    """Check for any new Telegram messages since the last run and reply to
+    recognized commands. Only messages coming from a chat id already in
+    CHAT_IDS are honored, so a random person who finds the bot can't trigger
+    it. Because this whole script only runs every 15 minutes, replies are
+    not instant — they go out on the next scheduled run after the command
+    was sent."""
+    offset = state.get("update_offset", 0)
+    updates = fetch_telegram_updates(offset)
+    if not updates:
+        return
+
+    highest_id = offset - 1
+    for update in updates:
+        update_id = update.get("update_id")
+        if update_id is not None and update_id > highest_id:
+            highest_id = update_id
+
+        message = update.get("message") or update.get("channel_post")
+        if not message:
+            continue
+
+        text = (message.get("text") or "").strip()
+        if not text.startswith("/"):
+            continue
+
+        chat_id = str(message.get("chat", {}).get("id", ""))
+        if chat_id not in CHAT_IDS:
+            logger.warning("Ignoring command from unrecognized chat_id %s", chat_id)
+            continue
+
+        # Strip a "@BotUsername" suffix, which Telegram adds automatically
+        # for commands sent in group chats.
+        command = text.split()[0].split("@")[0].lower()
+
+        if command == "/expected":
+            reply = build_expected_message(soup, header="🕒 Expected Arrivals (on demand)")
+            send_telegram_reply(chat_id, reply)
+        else:
+            logger.info("Received unrecognized command: %s", command)
+
+    if highest_id >= offset:
+        state["update_offset"] = highest_id + 1
+
+
 def page_looks_valid(soup):
     if soup is None:
         return False
@@ -509,6 +591,7 @@ def main():
         return
 
     state = load_state()
+    handle_commands(soup, state)
     # Use a dict as an ordered set: preserves the real order keys were
     # first seen in, so pruning later (save_state) drops the oldest ones
     # instead of an arbitrary/alphabetical selection.
