@@ -531,4 +531,179 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
             zone_state.pop(vid, None)
 
 
-def build_zone_summar
+def build_zone_summary_message(state, zone_label=ZONE_A_LABEL, header="🧭 السفن الواصلة إلى"):
+    """Format the current Yatur-zone table. Shared by the scheduled daily
+    digest (maybe_send_zone_daily_summary) and the on-demand /yatur command
+    (handle_commands) so both stay in sync."""
+    now = datetime.now(TZ)
+    today_str = now.strftime("%Y-%m-%d %H:%M")
+    zone_state = state.get("zone_vessels", {})
+    lines = [f"{header} {zone_label} ({today_str})\n"]
+
+    if not zone_state:
+        lines.append(f"لا يوجد سفن حالياً بمنطقة {zone_label}.")
+    else:
+        for vid, info in zone_state.items():
+            name = info.get("name") or vid
+            entered_at = info.get("entered_at")
+            entered_txt = ""
+            if entered_at:
+                try:
+                    entered_txt = f" — دخلت: {datetime.fromisoformat(entered_at).strftime('%Y-%m-%d %H:%M')}"
+                except ValueError:
+                    pass
+            details = fetch_vessel_details(info.get("url"))
+            berth = berth_label(details)
+            berth_txt = f" ({berth})" if berth else ""
+            lines.append(f"🚢 {name}{berth_txt}{entered_txt}")
+
+    return "\n".join(lines)
+
+
+def maybe_send_zone_daily_summary(state, zone_label=ZONE_A_LABEL):
+    """Send one daily digest listing every vessel currently considered
+    'inside' the watch zone (state['zone_vessels']), titled after the zone.
+    Runs once a day at ZONE_DAILY_SUMMARY_HOUR (7 AM Damascus time)."""
+    now = datetime.now(TZ)
+    today_str = now.strftime("%Y-%m-%d")
+    if now.hour < ZONE_DAILY_SUMMARY_HOUR or state.get("last_zone_summary_date") == today_str:
+        return
+
+    send_telegram(build_zone_summary_message(state, zone_label))
+    state["last_zone_summary_date"] = today_str
+
+
+def handle_commands(soup, state):
+    """Check for any new Telegram messages since the last run and reply to
+    recognized commands. Only messages coming from a chat id already in
+    CHAT_IDS are honored, so a random person who finds the bot can't trigger
+    it. Because this whole script only runs every 15 minutes, replies are
+    not instant — they go out on the next scheduled run after the command
+    was sent."""
+    offset = state.get("update_offset", 0)
+    updates = fetch_telegram_updates(offset)
+    if not updates:
+        return
+
+    highest_id = offset - 1
+    for update in updates:
+        update_id = update.get("update_id")
+        if update_id is not None and update_id > highest_id:
+            highest_id = update_id
+
+        message = update.get("message") or update.get("channel_post")
+        if not message:
+            continue
+
+        text = (message.get("text") or "").strip()
+        if not text.startswith("/"):
+            continue
+
+        chat_id = str(message.get("chat", {}).get("id", ""))
+        if chat_id not in CHAT_IDS:
+            logger.warning("Ignoring command from unrecognized chat_id %s", chat_id)
+            continue
+
+        # Strip a "@BotUsername" suffix, which Telegram adds automatically
+        # for commands sent in group chats.
+        command = text.split()[0].split("@")[0].lower()
+
+        if command == "/expected":
+            reply = build_expected_message(soup, header="🕒 Expected Arrivals (on demand)")
+            send_telegram_reply(chat_id, reply)
+        elif command == "/yatur":
+            reply = build_zone_summary_message(state)
+            send_telegram_reply(chat_id, reply)
+        else:
+            logger.info("Received unrecognized command: %s", command)
+
+    if highest_id >= offset:
+        state["update_offset"] = highest_id + 1
+
+
+def page_looks_valid(soup):
+    if soup is None:
+        return False
+    text = soup.get_text()
+    if "No Internet" in text and "Vessels In Port" not in text:
+        return False
+    return True
+
+
+# How many consecutive "seen once, not confirmed" cycles we tolerate before
+# giving up on an event and treating it as seen anyway (so it doesn't loop
+# forever waiting for a confirmation that will never come).
+MAX_PENDING_RETRIES = 3
+
+
+def main():
+    soup = fetch_page()
+    if not page_looks_valid(soup):
+        logger.warning("Page did not look valid on this run; skipping.")
+        return
+
+    state = load_state()
+    handle_commands(soup, state)
+    # Use a dict as an ordered set: preserves the real order keys were
+    # first seen in, so pruning later (save_state) drops the oldest ones
+    # instead of an arbitrary/alphabetical selection.
+    seen = dict.fromkeys(state.get("seen", []))
+    pending = state.get("pending", {})
+    first_run = len(seen) == 0
+
+    events = fetch_activity(soup)
+    new_events = [e for e in events if e["key"] not in seen]
+
+    if new_events and not first_run:
+        soup2 = fetch_page()
+        if page_looks_valid(soup2):
+            events2 = {e["key"] for e in fetch_activity(soup2)}
+            for e in new_events:
+                if e["key"] in events2:
+                    # Confirmed on the second pass: send notification.
+                    details = fetch_vessel_details(e.get("url"))
+                    type_txt = f" ({details['type']})" if details["type"] else ""
+                    berth = berth_label(details)
+                    berth_txt = f"\n⚓ {berth}" if berth else ""
+                    icon = "🟢 ARRIVAL" if e["event"] == "ARRIVAL" else "🔴 DEPARTURE"
+                    msg = f"{icon}: 🚢 {e['vessel']}{type_txt}\n⏱ {e['time']}{berth_txt}"
+                    send_telegram(msg)
+                    seen[e["key"]] = None
+                    pending.pop(e["key"], None)
+                else:
+                    # Not confirmed this time. Track how many times this has
+                    # happened; if it keeps failing to confirm, drop it into
+                    # "seen" anyway so it doesn't resurface and get sent as a
+                    # (possibly stale/duplicate) notification later.
+                    attempts = pending.get(e["key"], 0) + 1
+                    if attempts >= MAX_PENDING_RETRIES:
+                        logger.warning(
+                            "Event %s never confirmed after %d attempts; "
+                            "marking as seen without notifying.",
+                            e["key"], attempts,
+                        )
+                        seen[e["key"]] = None
+                        pending.pop(e["key"], None)
+                    else:
+                        pending[e["key"]] = attempts
+        else:
+            logger.warning("Second-pass fetch failed; will retry unconfirmed events next run.")
+
+    if first_run:
+        for e in events:
+            seen[e["key"]] = None
+
+    state["seen"] = list(seen)
+    state["pending"] = pending
+
+    check_zone_entries(soup, state)
+
+    maybe_send_daily_summary(soup, state)
+    maybe_send_expected_update(soup, state)
+    maybe_send_zone_daily_summary(state)
+
+    save_state(state)
+
+
+if __name__ == "__main__":
+    main()
