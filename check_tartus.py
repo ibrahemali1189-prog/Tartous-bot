@@ -160,10 +160,13 @@ def fetch_activity(soup):
 
 
 def fetch_vessel_details(vessel_url):
-    """Fetch a vessel's page once and extract both its type and its latest
-    reported position from the same soup, instead of making two separate
-    requests (one from fetch_vessel_type, one from fetch_vessel_position)."""
-    result = {"type": None, "lat": None, "lon": None, "reported": None}
+    """Fetch a vessel's page once and extract its type, latest reported
+    position, and a display name, from the same soup — instead of making
+    separate requests for each. The 'name' field is best-effort: the site's
+    summary tables sometimes show a vessel by its bare MMSI when it has no
+    registered name, but the vessel's own page occasionally has a proper
+    name in its <h1> or <title> even then."""
+    result = {"type": None, "lat": None, "lon": None, "reported": None, "name": None}
     if not vessel_url:
         return result
 
@@ -175,6 +178,24 @@ def fetch_vessel_details(vessel_url):
         return result
 
     vsoup = BeautifulSoup(resp.text, "html.parser")
+
+    # --- vessel name (best-effort) ---
+    h1 = vsoup.find("h1")
+    if h1:
+        name_txt = h1.get_text(strip=True)
+        if name_txt:
+            result["name"] = name_txt
+    if not result["name"] and vsoup.title:
+        title_txt = vsoup.title.get_text(strip=True)
+        # Titles are usually "SHIP NAME - MyShipTracking" or similar; keep
+        # only the part before the first separator.
+        for sep in (" - ", " | "):
+            if sep in title_txt:
+                title_txt = title_txt.split(sep)[0]
+                break
+        title_txt = title_txt.strip()
+        if title_txt:
+            result["name"] = title_txt
 
     # --- vessel type ---
     h2 = vsoup.find("h2")
@@ -385,6 +406,21 @@ def fetch_telegram_updates(offset):
         return []
 
 
+def _looks_like_bare_id(text):
+    """True if `text` is just digits (an MMSI/IMO shown as a name because
+    the site has no registered name for that vessel)."""
+    return bool(text) and text.strip().isdigit()
+
+
+def better_vessel_name(original_name, details):
+    """Prefer a real name found on the vessel's own page (details['name'])
+    over a bare numeric id from a summary table, when one is available."""
+    candidate = details.get("name") if details else None
+    if _looks_like_bare_id(original_name) and candidate and not _looks_like_bare_id(candidate):
+        return candidate
+    return original_name
+
+
 def berth_label(vessel_details):
     lat, lon = vessel_details.get("lat"), vessel_details.get("lon")
     if lat is None or lon is None:
@@ -425,6 +461,7 @@ def maybe_send_daily_summary(soup, state):
         lines.append("Vessels in port:")
         for v in in_port:
             details = fetch_vessel_details(v.get("url"))
+            v["name"] = better_vessel_name(v["name"], details)
             v["type"] = details["type"]
             v["berth"] = berth_label(details)
             lines.append(format_vessel_line(v))
@@ -445,9 +482,10 @@ def build_expected_message(soup, header="🕒 Expected Arrivals"):
     else:
         for v in vessels:
             details = fetch_vessel_details(v.get("url"))
+            name = better_vessel_name(v["name"], details)
             type_txt = f" ({details['type']})" if details["type"] else ""
             eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
-            lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
+            lines.append(f"🚢 {name}{type_txt}{eta_txt}")
     return "\n".join(lines)
 
 
@@ -512,6 +550,7 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
         if point_in_zone(details["lat"], details["lon"], zone):
             currently_inside.add(vid)
             if vid not in zone_state:
+                name = better_vessel_name(name, details)
                 berth = berth_label(details)
                 berth_txt = f"\n⚓ {berth}" if berth else ""
                 type_txt = f" ({details['type']})" if details["type"] else ""
@@ -559,6 +598,7 @@ def build_zone_summary_message(state, zone_label=ZONE_A_LABEL, header="🧭 ال
                 except ValueError:
                     pass
             details = fetch_vessel_details(info.get("url"))
+            name = better_vessel_name(name, details)
             berth = berth_label(details)
             berth_txt = f" ({berth})" if berth else ""
             lines.append(f"🚢 {name}{berth_txt}{entered_txt}")
@@ -668,11 +708,12 @@ def main():
                 if e["key"] in events2:
                     # Confirmed on the second pass: send notification.
                     details = fetch_vessel_details(e.get("url"))
+                    vessel_name = better_vessel_name(e["vessel"], details)
                     type_txt = f" ({details['type']})" if details["type"] else ""
                     berth = berth_label(details)
                     berth_txt = f"\n⚓ {berth}" if berth else ""
                     icon = "🟢 ARRIVAL" if e["event"] == "ARRIVAL" else "🔴 DEPARTURE"
-                    msg = f"{icon}: 🚢 {e['vessel']}{type_txt}\n⏱ {e['time']}{berth_txt}"
+                    msg = f"{icon}: 🚢 {vessel_name}{type_txt}\n⏱ {e['time']}{berth_txt}"
                     send_telegram(msg)
                     seen[e["key"]] = None
                     pending.pop(e["key"], None)
