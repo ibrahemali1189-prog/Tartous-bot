@@ -307,13 +307,15 @@
     "215424000|DEPARTURE|2026-09-2604:45",
     "677054000|ARRIVAL|2026-09-2606:29",
     "371839000|DEPARTURE|2026-09-2605:37",
-    "677071800|ARRIVAL|2026-09-2522:16"
+    "677071800|ARRIVAL|2026-09-2522:16",
+    "620843000|ARRIVAL|2026-09-2611:04"
   ],
-  "update_offset": 362578844,
+  "update_offset": 362578845,
   "last_summary_date": "2026-09-26",
-  "last_expected_sent": "2026-09-26T08:01:35.462500+03:00",
+  "last_expected_sent": "2026-09-26T14:38:50.829182+03:00",
   "pending": {},
   "zone_vessels": {
     "636021738": true
-  }
+  },
+  "last_zone_summary_date": "2026-09-26"
 }
