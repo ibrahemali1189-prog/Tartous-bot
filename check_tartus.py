@@ -546,4 +546,30 @@ def main():
                     if attempts >= MAX_PENDING_RETRIES:
                         logger.warning(
                             "Event %s never confirmed after %d attempts; "
-                      
+                            "marking as seen without notifying.",
+                            e["key"], attempts,
+                        )
+                        seen.add(e["key"])
+                        pending.pop(e["key"], None)
+                    else:
+                        pending[e["key"]] = attempts
+        else:
+            logger.warning("Second-pass fetch failed; will retry unconfirmed events next run.")
+
+    if first_run:
+        for e in events:
+            seen.add(e["key"])
+
+    state["seen"] = list(seen)
+    state["pending"] = pending
+
+    check_zone_entries(soup, state)
+
+    maybe_send_daily_summary(soup, state)
+    maybe_send_expected_update(soup, state)
+
+    save_state(state)
+
+
+if __name__ == "__main__":
+    main()
