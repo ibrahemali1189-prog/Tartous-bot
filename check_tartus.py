@@ -324,22 +324,15 @@ def load_state():
 
 
 def save_state(state):
-    state["seen"] = sorted(set(state["seen"]))[-500:]
+    # Keep insertion order and drop the OLDEST entries once we exceed the
+    # cap. Sorting alphabetically here would be wrong: it has nothing to do
+    # with recency, so it could silently drop a recent event while keeping
+    # an old one — which then gets re-notified if it resurfaces in the
+    # site's activity table.
+    seen_ordered = list(dict.fromkeys(state["seen"]))  # dedup, keep order
+    state["seen"] = seen_ordered[-500:]
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
-
-
-def get_refresh_keyboard():
-    return {
-        "inline_keyboard": [
-            [
-                {
-                    "text": "🔄 تحديث حركة المرفأ الآن",
-                    "url": PORT_URL
-                }
-            ]
-        ]
-    }
 
 
 def send_telegram(msg, reply_markup=None):
@@ -402,7 +395,7 @@ def maybe_send_daily_summary(soup, state):
             v["berth"] = berth_label(details)
             lines.append(format_vessel_line(v))
 
-    send_telegram("\n".join(lines), reply_markup=get_refresh_keyboard())
+    send_telegram("\n".join(lines))
     state["last_summary_date"] = today_str
 
 
@@ -428,7 +421,7 @@ def maybe_send_expected_update(soup, state):
             eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
             lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
 
-    send_telegram("\n".join(lines), reply_markup=get_refresh_keyboard())
+    send_telegram("\n".join(lines))
     state["last_expected_sent"] = now.isoformat()
 
 
@@ -482,7 +475,7 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
                     f"📍 {details['lat']}, {details['lon']} "
                     f"(آخر تحديث: {details.get('reported') or '—'})"
                 )
-                send_telegram(msg, reply_markup=get_refresh_keyboard())
+                send_telegram(msg)
 
     # Vessels that were inside before but aren't anymore have left the zone;
     # drop them so a later re-entry can alert again.
@@ -516,7 +509,10 @@ def main():
         return
 
     state = load_state()
-    seen = set(state.get("seen", []))
+    # Use a dict as an ordered set: preserves the real order keys were
+    # first seen in, so pruning later (save_state) drops the oldest ones
+    # instead of an arbitrary/alphabetical selection.
+    seen = dict.fromkeys(state.get("seen", []))
     pending = state.get("pending", {})
     first_run = len(seen) == 0
 
@@ -534,8 +530,8 @@ def main():
                     type_txt = f" ({details['type']})" if details["type"] else ""
                     icon = "🟢 ARRIVAL" if e["event"] == "ARRIVAL" else "🔴 DEPARTURE"
                     msg = f"{icon}: 🚢 {e['vessel']}{type_txt}\n⏱ {e['time']}"
-                    send_telegram(msg, reply_markup=get_refresh_keyboard())
-                    seen.add(e["key"])
+                    send_telegram(msg)
+                    seen[e["key"]] = None
                     pending.pop(e["key"], None)
                 else:
                     # Not confirmed this time. Track how many times this has
@@ -549,7 +545,7 @@ def main():
                             "marking as seen without notifying.",
                             e["key"], attempts,
                         )
-                        seen.add(e["key"])
+                        seen[e["key"]] = None
                         pending.pop(e["key"], None)
                     else:
                         pending[e["key"]] = attempts
@@ -558,7 +554,7 @@ def main():
 
     if first_run:
         for e in events:
-            seen.add(e["key"])
+            seen[e["key"]] = None
 
     state["seen"] = list(seen)
     state["pending"] = pending
