@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from datetime import datetime, timedelta
@@ -13,6 +14,12 @@ STATE_FILE = "seen.json"
 TZ = ZoneInfo("Asia/Damascus")
 DAILY_SUMMARY_HOUR = 8
 EXPECTED_UPDATE_INTERVAL = timedelta(hours=3)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("tartous_bot")
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_IDS = [c.strip() for c in os.environ["TELEGRAM_CHAT_ID"].split(",") if c.strip()]
@@ -35,6 +42,34 @@ BERTHS = {
 }
 _BERTH_MAX_DISTANCE_M = 120
 _REF_LAT = 34.905
+
+
+def bounding_box(center_lat, center_lon, km_north=0, km_south=0, km_west=0, km_east=0):
+    """Build a rectangular lat/lon box from a center point and distances (km)
+    in each cardinal direction. Any distance left at 0 means the box does not
+    extend that way (the center's own coordinate is used as that edge)."""
+    lat_max = center_lat + km_north / 110.540
+    lat_min = center_lat - km_south / 110.540
+    lon_per_km = 1 / (111.320 * cos(radians(center_lat)))
+    lon_min = center_lon - km_west * lon_per_km
+    lon_max = center_lon + km_east * lon_per_km
+    return {"lat_min": lat_min, "lat_max": lat_max, "lon_min": lon_min, "lon_max": lon_max}
+
+
+# Custom watch zone: 2km north + 2km south of the center point, and 4km west
+# of it (no eastward extension, so the east edge sits on the center point's
+# own longitude). Adjust the numbers here if the zone needs to change.
+ZONE_A_LABEL = "المنطقة المراقبة"
+ZONE_A = bounding_box(34.907124, 35.853418, km_north=2, km_south=2, km_west=4, km_east=0)
+
+
+def point_in_zone(lat, lon, zone):
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except (TypeError, ValueError):
+        return False
+    return zone["lat_min"] <= lat <= zone["lat_max"] and zone["lon_min"] <= lon <= zone["lon_max"]
 
 
 def _to_xy(lat, lon):
@@ -81,14 +116,19 @@ def extract_vessel_id(url):
 
 
 def fetch_page(url=PORT_URL):
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
-    return BeautifulSoup(resp.text, "html.parser")
+    """Fetch and parse a page. Returns None (and logs) on any network failure
+    instead of letting the exception propagate and crash the whole run."""
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+        return BeautifulSoup(resp.text, "html.parser")
+    except requests.RequestException as exc:
+        logger.error("Failed to fetch page %s: %s", url, exc)
+        return None
 
 
 def fetch_activity(soup):
     events = []
-    today_date = datetime.now(TZ).strftime("%Y-%m-%d")
     for tr in soup.find_all("tr"):
         text = tr.get_text(" ", strip=True)
         if "ARRIVAL" not in text and "DEPARTURE" not in text:
@@ -107,8 +147,9 @@ def fetch_activity(soup):
             vessel_url = "https://www.myshiptracking.com" + vessel_url
 
         v_id = extract_vessel_id(vessel_url) or vessel_txt
-        # المفتاح المحمي بالرقم والتاريخ لضمان التحديثات للرحلات المستقبليّة
-        key = f"{today_date}|{v_id}|{event_txt}"
+        # Key is based on vessel id + event type + reported event time,
+        # to prevent duplicate/stale notifications.
+        key = f"{v_id}|{event_txt}|{time_txt}"
 
         events.append({
             "key": key, "time": time_txt, "event": event_txt,
@@ -117,46 +158,52 @@ def fetch_activity(soup):
     return events
 
 
-def fetch_vessel_type(vessel_url):
+def fetch_vessel_details(vessel_url):
+    """Fetch a vessel's page once and extract both its type and its latest
+    reported position from the same soup, instead of making two separate
+    requests (one from fetch_vessel_type, one from fetch_vessel_position)."""
+    result = {"type": None, "lat": None, "lon": None, "reported": None}
     if not vessel_url:
-        return None
+        return result
+
     try:
         resp = requests.get(vessel_url, headers=HEADERS, timeout=20)
         resp.raise_for_status()
-        vsoup = BeautifulSoup(resp.text, "html.parser")
-        h2 = vsoup.find("h2")
-        if h2:
-            type_txt = h2.get_text(strip=True)
-            if type_txt:
-                return type_txt
-    except requests.RequestException:
-        pass
-    return None
+    except requests.RequestException as exc:
+        logger.warning("Failed to fetch vessel page %s: %s", vessel_url, exc)
+        return result
 
+    vsoup = BeautifulSoup(resp.text, "html.parser")
 
-def fetch_vessel_position(vessel_url):
-    if not vessel_url:
-        return None
-    try:
-        resp = requests.get(vessel_url, headers=HEADERS, timeout=20)
-        resp.raise_for_status()
-        vsoup = BeautifulSoup(resp.text, "html.parser")
+    # --- vessel type ---
+    h2 = vsoup.find("h2")
+    if h2:
+        type_txt = h2.get_text(strip=True)
+        if type_txt:
+            result["type"] = type_txt
+    if result["type"] is None:
+        logger.warning("Could not find vessel type on %s", vessel_url)
 
-        for table in vsoup.find_all("table"):
-            headers = [th.get_text(strip=True) for th in table.find_all("th")]
-            if "Time" in headers and "Event" in headers:
-                rows = table.find_all("tr")[1:]
-                if rows:
-                    cells = rows[0].find_all("td")
-                    if cells:
-                        time_txt = cells[0].get_text(strip=True)
-                        row_txt = rows[0].get_text(" ", strip=True)
-                        pmatch = re.search(r"(-?\d+\.\d+)\s*/\s*(-?\d+\.\d+)", row_txt)
-                        if pmatch:
-                            lat, lon = pmatch.groups()
-                            return {"lat": lat, "lon": lon, "reported": time_txt}
-                break
+    # --- position: try the Time/Event table first ---
+    found_position = False
+    for table in vsoup.find_all("table"):
+        headers = [th.get_text(strip=True) for th in table.find_all("th")]
+        if "Time" in headers and "Event" in headers:
+            rows = table.find_all("tr")[1:]
+            if rows:
+                cells = rows[0].find_all("td")
+                if cells:
+                    time_txt = cells[0].get_text(strip=True)
+                    row_txt = rows[0].get_text(" ", strip=True)
+                    pmatch = re.search(r"(-?\d+\.\d+)\s*/\s*(-?\d+\.\d+)", row_txt)
+                    if pmatch:
+                        lat, lon = pmatch.groups()
+                        result["lat"], result["lon"], result["reported"] = lat, lon, time_txt
+                        found_position = True
+            break
 
+    # --- fallback: try the free-text "coordinates x/y as reported on ..." pattern ---
+    if not found_position:
         text = vsoup.get_text(" ", strip=True)
         match = re.search(
             r"coordinates\s+(-?\d+\.\d+)\s*[°]?\s*/\s*(-?\d+\.\d+)\s*[°]?\s*"
@@ -165,10 +212,16 @@ def fetch_vessel_position(vessel_url):
         )
         if match:
             lat, lon, reported = match.groups()
-            return {"lat": lat, "lon": lon, "reported": reported.strip()}
-    except requests.RequestException:
-        pass
-    return None
+            result["lat"], result["lon"], result["reported"] = lat, lon, reported.strip()
+            found_position = True
+
+    if not found_position:
+        logger.warning(
+            "Could not extract position for %s (page layout may have changed)",
+            vessel_url,
+        )
+
+    return result
 
 
 def _parse_table_by_headers(soup, required_headers):
@@ -196,7 +249,7 @@ def _parse_table_by_headers(soup, required_headers):
 def fetch_in_port(soup):
     headers, rows = _parse_table_by_headers(soup, ["Vessel", "Arrived"])
     vessels = []
-    
+
     for row in rows:
         rowmap = dict(zip(headers, row))
         name, url = rowmap.get("Vessel", ("", None))
@@ -255,14 +308,18 @@ def load_state():
                 return {
                     "seen": data, "update_offset": 0,
                     "last_summary_date": "", "last_expected_sent": "",
+                    "pending": {}, "zone_vessels": {},
                 }
             data.setdefault("update_offset", 0)
             data.setdefault("last_summary_date", "")
             data.setdefault("last_expected_sent", "")
+            data.setdefault("pending", {})
+            data.setdefault("zone_vessels", {})
             return data
     return {
         "seen": [], "update_offset": 0,
         "last_summary_date": "", "last_expected_sent": "",
+        "pending": {}, "zone_vessels": {},
     }
 
 
@@ -272,18 +329,40 @@ def save_state(state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def send_telegram(msg):
+def get_refresh_keyboard():
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "🔄 تحديث حركة المرفأ الآن",
+                    "url": PORT_URL
+                }
+            ]
+        ]
+    }
+
+
+def send_telegram(msg, reply_markup=None):
+    """Send a message to every configured chat id. A failure for one chat
+    (e.g. bot blocked, bad chat id) is logged but does not stop delivery
+    to the remaining chats."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     for chat_id in CHAT_IDS:
-        r = requests.post(url, data={"chat_id": chat_id, "text": msg}, timeout=30)
-        r.raise_for_status()
+        data = {"chat_id": chat_id, "text": msg}
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup)
+        try:
+            r = requests.post(url, data=data, timeout=30)
+            r.raise_for_status()
+        except requests.RequestException as exc:
+            logger.error("Failed to send Telegram message to %s: %s", chat_id, exc)
 
 
-def berth_label(vessel_url):
-    pos = fetch_vessel_position(vessel_url)
-    if not pos:
+def berth_label(vessel_details):
+    lat, lon = vessel_details.get("lat"), vessel_details.get("lon")
+    if lat is None or lon is None:
         return None
-    berth, _dist = nearest_berth(pos["lat"], pos["lon"])
+    berth, _dist = nearest_berth(lat, lon)
     return f"Berth {berth}" if berth else None
 
 
@@ -318,11 +397,12 @@ def maybe_send_daily_summary(soup, state):
     if in_port:
         lines.append("Vessels in port:")
         for v in in_port:
-            v["type"] = fetch_vessel_type(v.get("url"))
-            v["berth"] = berth_label(v.get("url"))
+            details = fetch_vessel_details(v.get("url"))
+            v["type"] = details["type"]
+            v["berth"] = berth_label(details)
             lines.append(format_vessel_line(v))
 
-    send_telegram("\n".join(lines))
+    send_telegram("\n".join(lines), reply_markup=get_refresh_keyboard())
     state["last_summary_date"] = today_str
 
 
@@ -343,29 +423,101 @@ def maybe_send_expected_update(soup, state):
         lines.append("No expected arrivals currently listed.")
     else:
         for v in vessels:
-            vtype = fetch_vessel_type(v.get("url"))
-            type_txt = f" ({vtype})" if vtype else ""
+            details = fetch_vessel_details(v.get("url"))
+            type_txt = f" ({details['type']})" if details["type"] else ""
             eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
             lines.append(f"🚢 {v['name']}{type_txt}{eta_txt}")
 
-    send_telegram("\n".join(lines))
+    send_telegram("\n".join(lines), reply_markup=get_refresh_keyboard())
     state["last_expected_sent"] = now.isoformat()
 
 
+def gather_tracked_vessels(soup):
+    """Collect a de-duplicated list of (vessel_id, name, url) from every
+    table the site exposes: recent activity, vessels in port/anchorage, and
+    expected arrivals. This is the closest approximation to 'every vessel
+    currently near the port' available to us, since the site doesn't expose
+    a raw live-AIS feed for an arbitrary area."""
+    candidates = []
+    for e in fetch_activity(soup):
+        candidates.append((e.get("vessel"), e.get("url")))
+    for v in fetch_in_port(soup):
+        candidates.append((v.get("name"), v.get("url")))
+    for v in fetch_expected(soup):
+        candidates.append((v.get("name"), v.get("url")))
+
+    seen_ids = set()
+    result = []
+    for name, url in candidates:
+        if not url:
+            continue
+        vid = extract_vessel_id(url) or name
+        if not vid or vid in seen_ids:
+            continue
+        seen_ids.add(vid)
+        result.append((vid, name, url))
+    return result
+
+
+def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
+    """Notify once per entry when a tracked vessel's latest reported
+    position falls inside `zone`. Uses state['zone_vessels'] as a set of
+    vessel ids currently considered 'inside', so the same vessel doesn't
+    trigger a new alert every run while it stays there — only on entry.
+    When it later reports a position outside the zone, it's cleared, so a
+    future re-entry will alert again."""
+    zone_state = state.setdefault("zone_vessels", {})
+    currently_inside = set()
+
+    for vid, name, url in gather_tracked_vessels(soup):
+        details = fetch_vessel_details(url)
+        if details["lat"] is None or details["lon"] is None:
+            continue
+        if point_in_zone(details["lat"], details["lon"], zone):
+            currently_inside.add(vid)
+            if vid not in zone_state:
+                msg = (
+                    f"🟡 دخول سفينة إلى {zone_label}\n"
+                    f"🚢 {name}\n"
+                    f"📍 {details['lat']}, {details['lon']} "
+                    f"(آخر تحديث: {details.get('reported') or '—'})"
+                )
+                send_telegram(msg, reply_markup=get_refresh_keyboard())
+
+    # Vessels that were inside before but aren't anymore have left the zone;
+    # drop them so a later re-entry can alert again.
+    for vid in list(zone_state.keys()):
+        if vid not in currently_inside:
+            zone_state.pop(vid, None)
+
+    for vid in currently_inside:
+        zone_state[vid] = True
+
+
 def page_looks_valid(soup):
+    if soup is None:
+        return False
     text = soup.get_text()
     if "No Internet" in text and "Vessels In Port" not in text:
         return False
     return True
 
 
+# How many consecutive "seen once, not confirmed" cycles we tolerate before
+# giving up on an event and treating it as seen anyway (so it doesn't loop
+# forever waiting for a confirmation that will never come).
+MAX_PENDING_RETRIES = 3
+
+
 def main():
     soup = fetch_page()
     if not page_looks_valid(soup):
+        logger.warning("Page did not look valid on this run; skipping.")
         return
 
     state = load_state()
     seen = set(state.get("seen", []))
+    pending = state.get("pending", {})
     first_run = len(seen) == 0
 
     events = fetch_activity(soup)
@@ -377,24 +529,21 @@ def main():
             events2 = {e["key"] for e in fetch_activity(soup2)}
             for e in new_events:
                 if e["key"] in events2:
-                    vtype = fetch_vessel_type(e.get("url"))
-                    type_txt = f" ({vtype})" if vtype else ""
+                    # Confirmed on the second pass: send notification.
+                    details = fetch_vessel_details(e.get("url"))
+                    type_txt = f" ({details['type']})" if details["type"] else ""
                     icon = "🟢 ARRIVAL" if e["event"] == "ARRIVAL" else "🔴 DEPARTURE"
                     msg = f"{icon}: 🚢 {e['vessel']}{type_txt}\n⏱ {e['time']}"
-                    send_telegram(msg)
+                    send_telegram(msg, reply_markup=get_refresh_keyboard())
                     seen.add(e["key"])
-
-    if first_run:
-        for e in events:
-            seen.add(e["key"])
-
-    state["seen"] = list(seen)
-
-    maybe_send_daily_summary(soup, state)
-    maybe_send_expected_update(soup, state)
-
-    save_state(state)
-
-
-if __name__ == "__main__":
-    main()
+                    pending.pop(e["key"], None)
+                else:
+                    # Not confirmed this time. Track how many times this has
+                    # happened; if it keeps failing to confirm, drop it into
+                    # "seen" anyway so it doesn't resurface and get sent as a
+                    # (possibly stale/duplicate) notification later.
+                    attempts = pending.get(e["key"], 0) + 1
+                    if attempts >= MAX_PENDING_RETRIES:
+                        logger.warning(
+                            "Event %s never confirmed after %d attempts; "
+                      
