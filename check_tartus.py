@@ -544,6 +544,12 @@ def build_zone_summary_message(state, zone_label=ZONE_A_LABEL, header="🧭 ال
         lines.append(f"لا يوجد سفن حالياً بمنطقة {zone_label}.")
     else:
         for vid, info in zone_state.items():
+            # Backward compatibility: entries saved before this feature
+            # existed are just `True` (a bare flag), not a dict. Normalize
+            # so old state files don't crash this.
+            if not isinstance(info, dict):
+                info = {"name": None, "url": None, "entered_at": None}
+
             name = info.get("name") or vid
             entered_at = info.get("entered_at")
             entered_txt = ""
