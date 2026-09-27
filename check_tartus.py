@@ -29,8 +29,26 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    )
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Referer": "https://www.myshiptracking.com/",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
 }
+
+# A shared session (instead of bare requests.get calls) so any cookies the
+# site sets on the first request are carried over to later requests in the
+# same run.
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
 
 BERTHS = {
     "4": ((34.910513, 35.869054), (34.908821, 35.862661)),
@@ -120,7 +138,7 @@ def fetch_page(url=PORT_URL):
     """Fetch and parse a page. Returns None (and logs) on any network failure
     instead of letting the exception propagate and crash the whole run."""
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=30)
+        resp = SESSION.get(url, timeout=30)
         resp.raise_for_status()
         return BeautifulSoup(resp.text, "html.parser")
     except requests.RequestException as exc:
@@ -171,7 +189,7 @@ def fetch_vessel_details(vessel_url):
         return result
 
     try:
-        resp = requests.get(vessel_url, headers=HEADERS, timeout=20)
+        resp = SESSION.get(vessel_url, timeout=20)
         resp.raise_for_status()
     except requests.RequestException as exc:
         logger.warning("Failed to fetch vessel page %s: %s", vessel_url, exc)
