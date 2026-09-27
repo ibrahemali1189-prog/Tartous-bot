@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from math import radians, cos, hypot
 from zoneinfo import ZoneInfo
@@ -49,6 +50,17 @@ HEADERS = {
 # same run.
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
+
+# Optional proxy support: myshiptracking.com blocks requests coming from
+# GitHub Actions' IP ranges (403 Forbidden) regardless of headers. Setting
+# the PROXY_URL environment variable (as a GitHub Actions secret) routes
+# every request through that proxy instead, so it doesn't come from a
+# GitHub IP. Expected format: "http://user:pass@host:port" (standard proxy
+# URL, as given by most proxy providers). Leave unset to disable.
+PROXY_URL = os.environ.get("PROXY_URL", "").strip()
+if PROXY_URL:
+    SESSION.proxies.update({"http": PROXY_URL, "https": PROXY_URL})
+    logger.info("Using proxy for outgoing requests.")
 
 BERTHS = {
     "4": ((34.910513, 35.869054), (34.908821, 35.862661)),
@@ -177,7 +189,7 @@ def fetch_activity(soup):
     return events
 
 
-def fetch_vessel_details(vessel_url):
+def _fetch_vessel_details_uncached(vessel_url):
     """Fetch a vessel's page once and extract its type, latest reported
     position, and a display name, from the same soup — instead of making
     separate requests for each. The 'name' field is best-effort: the site's
@@ -261,6 +273,32 @@ def fetch_vessel_details(vessel_url):
             vessel_url,
         )
 
+    return result
+
+
+# Requests to the same vessel page within one run are cached (avoids fetching
+# the same vessel twice just because it shows up in two different tables —
+# e.g. the activity feed and the in-port list). A short delay after every
+# real network fetch keeps the request rate low; the site started returning
+# 403 Forbidden shortly after the zone-watch feature multiplied how many
+# vessel pages get fetched per run, which looks like rate-limiting/abuse
+# detection rather than a blanket ban on GitHub's IPs.
+REQUEST_DELAY_SECONDS = 1.0
+_vessel_details_cache = {}
+
+
+def reset_vessel_details_cache():
+    _vessel_details_cache.clear()
+
+
+def fetch_vessel_details(vessel_url):
+    if not vessel_url:
+        return _fetch_vessel_details_uncached(vessel_url)
+    if vessel_url in _vessel_details_cache:
+        return _vessel_details_cache[vessel_url]
+    result = _fetch_vessel_details_uncached(vessel_url)
+    time.sleep(REQUEST_DELAY_SECONDS)
+    _vessel_details_cache[vessel_url] = result
     return result
 
 
@@ -701,6 +739,7 @@ MAX_PENDING_RETRIES = 3
 
 
 def main():
+    reset_vessel_details_cache()
     soup = fetch_page()
     if not page_looks_valid(soup):
         logger.warning("Page did not look valid on this run; skipping.")
