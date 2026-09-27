@@ -146,15 +146,31 @@ def extract_vessel_id(url):
     return match_mmsi.group(1) if match_mmsi else None
 
 
+JINA_READER_BASE = "https://r.jina.ai/"
+
+
 def fetch_page(url=PORT_URL):
-    """Fetch and parse a page. Returns None (and logs) on any network failure
-    instead of letting the exception propagate and crash the whole run."""
+    """Fetch and parse a page. Goes through the free Jina Reader proxy
+    (r.jina.ai) instead of hitting the site directly: myshiptracking.com
+    is behind Cloudflare, which blocks GitHub Actions' (Azure) IP ranges
+    with a 403 regardless of headers. Jina Reader fetches the page from
+    its own infrastructure and returns the content, so the request to
+    myshiptracking.com never comes from a GitHub IP. X-Respond-With: html
+    asks Jina to return raw HTML (documentElement.outerHTML) instead of
+    its default Markdown conversion, so the existing BeautifulSoup-based
+    parsing below doesn't need to change.
+    Returns None (and logs) on any network failure instead of letting the
+    exception propagate and crash the whole run."""
     try:
-        resp = SESSION.get(url, timeout=30)
+        resp = SESSION.get(
+            JINA_READER_BASE + url,
+            headers={"X-Respond-With": "html"},
+            timeout=45,
+        )
         resp.raise_for_status()
         return BeautifulSoup(resp.text, "html.parser")
     except requests.RequestException as exc:
-        logger.error("Failed to fetch page %s: %s", url, exc)
+        logger.error("Failed to fetch page %s via Jina Reader: %s", url, exc)
         # Diagnostics: these details help tell apart a generic app-level
         # block from an edge/CDN anti-bot service (e.g. Cloudflare), which
         # behave very differently and need different fixes.
@@ -169,11 +185,6 @@ def fetch_page(url=PORT_URL):
                 )
                 logger.error("Body snippet: %s", resp.text[:300].replace("\n", " "))
         except Exception:
-            pass
-        try:
-            ip_resp = requests.get("https://api.ipify.org", timeout=10)
-            logger.error("Outbound IP for this run was: %s", ip_resp.text.strip())
-        except requests.RequestException:
             pass
         return None
 
@@ -221,10 +232,14 @@ def _fetch_vessel_details_uncached(vessel_url):
         return result
 
     try:
-        resp = SESSION.get(vessel_url, timeout=20)
+        resp = SESSION.get(
+            JINA_READER_BASE + vessel_url,
+            headers={"X-Respond-With": "html"},
+            timeout=30,
+        )
         resp.raise_for_status()
     except requests.RequestException as exc:
-        logger.warning("Failed to fetch vessel page %s: %s", vessel_url, exc)
+        logger.warning("Failed to fetch vessel page %s via Jina Reader: %s", vessel_url, exc)
         return result
 
     vsoup = BeautifulSoup(resp.text, "html.parser")
@@ -303,7 +318,7 @@ def _fetch_vessel_details_uncached(vessel_url):
 # 403 Forbidden shortly after the zone-watch feature multiplied how many
 # vessel pages get fetched per run, which looks like rate-limiting/abuse
 # detection rather than a blanket ban on GitHub's IPs.
-REQUEST_DELAY_SECONDS = 1.0
+REQUEST_DELAY_SECONDS = 3.0
 _vessel_details_cache = {}
 
 
