@@ -155,6 +155,26 @@ def fetch_page(url=PORT_URL):
         return BeautifulSoup(resp.text, "html.parser")
     except requests.RequestException as exc:
         logger.error("Failed to fetch page %s: %s", url, exc)
+        # Diagnostics: these details help tell apart a generic app-level
+        # block from an edge/CDN anti-bot service (e.g. Cloudflare), which
+        # behave very differently and need different fixes.
+        try:
+            resp = exc.response
+            if resp is not None:
+                logger.error("Response status: %s", resp.status_code)
+                logger.error("Server header: %s", resp.headers.get("Server"))
+                logger.error(
+                    "cf-ray header (present only behind Cloudflare): %s",
+                    resp.headers.get("cf-ray"),
+                )
+                logger.error("Body snippet: %s", resp.text[:300].replace("\n", " "))
+        except Exception:
+            pass
+        try:
+            ip_resp = requests.get("https://api.ipify.org", timeout=10)
+            logger.error("Outbound IP for this run was: %s", ip_resp.text.strip())
+        except requests.RequestException:
+            pass
         return None
 
 
