@@ -318,7 +318,8 @@
     "374194000|ARRIVAL|2026-09-2703:17",
     "677065000|ARRIVAL|2026-09-2623:17",
     "271051138|ARRIVAL|2026-09-2622:38",
-    "271051138|DEPARTURE|2026-09-2811:39"
+    "271051138|DEPARTURE|2026-09-2811:39",
+    "341100002|DEPARTURE|2026-09-2813:42"
   ],
   "update_offset": 362578849,
   "last_summary_date": "2026-09-28",
@@ -329,6 +330,11 @@
       "name": "MED IZMIR [TR]",
       "url": "https://www.myshiptracking.com/vessels/med-izmir-mmsi-271051138-imo-9143879",
       "entered_at": "2026-09-28T15:56:50.633481+03:00"
+    },
+    "341100002": {
+      "name": "MJ SOFIA [KN]",
+      "url": "https://www.myshiptracking.com/vessels/mj-sofia-mmsi-341100002-imo-9113381",
+      "entered_at": "2026-09-28T17:15:33.546504+03:00"
     }
   },
   "last_zone_summary_date": "2026-09-28"
