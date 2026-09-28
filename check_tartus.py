@@ -4,6 +4,7 @@ import os
 import re
 import time
 from datetime import datetime, timedelta
+from html import escape as html_escape
 from math import radians, cos, hypot
 from zoneinfo import ZoneInfo
 
@@ -36,7 +37,7 @@ HEADERS = {
         "image/avif,image/webp,*/*;q=0.8"
     ),
     "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate",
     "Connection": "keep-alive",
     "Referer": "https://www.myshiptracking.com/",
     "Upgrade-Insecure-Requests": "1",
@@ -148,6 +149,108 @@ def extract_vessel_id(url):
 
 JINA_READER_BASE = "https://r.jina.ai/"
 
+# --- Markdown fallback -----------------------------------------------------
+# Jina Reader's default output is Markdown. If its HTML mode ever returns
+# something the parsers can't use, we fetch the Markdown version and turn its
+# tables/links/headings back into simple HTML, so every existing BeautifulSoup
+# parser keeps working unchanged.
+_MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)\s]*)[^)]*\)")
+_MD_SEP_RE = re.compile(r"^\|(\s*:?-{3,}:?\s*\|)+\s*$")
+
+
+def _md_inline(text):
+    text = html_escape(text)
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+
+
+def _md_cell_to_html(cell):
+    cell = _MD_IMAGE_RE.sub("", cell)
+    out, pos = [], 0
+    for m in _MD_LINK_RE.finditer(cell):
+        out.append(_md_inline(cell[pos:m.start()]))
+        out.append(
+            f'<a href="{html_escape(m.group(2), quote=True)}">{_md_inline(m.group(1))}</a>'
+        )
+        pos = m.end()
+    out.append(_md_inline(cell[pos:]))
+    return "".join(out)
+
+
+def _split_md_row(line):
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def markdown_to_soup(md_text):
+    lines = md_text.splitlines()
+    parts, title, i = [], "", 0
+    while i < len(lines):
+        line = lines[i].strip()
+        nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        if line.startswith("|") and _MD_SEP_RE.match(nxt):
+            header = _split_md_row(line)
+            rows = []
+            i += 2
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                if not _MD_SEP_RE.match(lines[i].strip()):
+                    rows.append(_split_md_row(lines[i]))
+                i += 1
+            html = "<table><tr>" + "".join(
+                f"<th>{_md_cell_to_html(h)}</th>" for h in header
+            ) + "</tr>"
+            for r in rows:
+                html += "<tr>" + "".join(f"<td>{_md_cell_to_html(c)}</td>" for c in r) + "</tr>"
+            parts.append(html + "</table>")
+            continue
+        if line.startswith("Title:"):
+            title = line[len("Title:"):].strip()
+        elif line.startswith("### "):
+            parts.append(f"<h3>{_md_cell_to_html(line[4:])}</h3>")
+        elif line.startswith("## "):
+            parts.append(f"<h2>{_md_cell_to_html(line[3:])}</h2>")
+        elif line.startswith("# "):
+            parts.append(f"<h1>{_md_cell_to_html(line[2:])}</h1>")
+        elif line:
+            parts.append(f"<p>{_md_cell_to_html(line)}</p>")
+        i += 1
+    return BeautifulSoup(
+        f"<html><head><title>{html_escape(title)}</title></head><body>{''.join(parts)}</body></html>",
+        "html.parser",
+    )
+
+
+def _has_vessel_table(soup):
+    return any(
+        "Vessel" in [th.get_text(strip=True) for th in t.find_all("th")]
+        for t in soup.find_all("table")
+    )
+
+
+def _looks_like_vessel_page(soup):
+    return bool(soup.find("h1") or soup.find("table"))
+
+
+def fetch_soup_via_jina(url, timeout, is_usable):
+    """Fetch `url` through Jina Reader. Tries raw-HTML mode first (identical
+    structure to what the parsers were written for); if that result is not
+    usable, falls back to Markdown mode converted back to HTML."""
+    target = JINA_READER_BASE + url
+    resp = SESSION.get(target, headers={"X-Respond-With": "html"}, timeout=timeout)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+    if is_usable(soup):
+        return soup
+    logger.warning("Jina HTML mode gave no usable content for %s; trying Markdown mode.", url)
+    resp = SESSION.get(target, timeout=timeout)
+    resp.raise_for_status()
+    soup = markdown_to_soup(resp.text)
+    if not is_usable(soup):
+        logger.warning(
+            "Markdown mode also unusable for %s. Body starts with: %s",
+            url, resp.text[:200].replace("\n", " "),
+        )
+    return soup
+
 
 def fetch_page(url=PORT_URL):
     """Fetch and parse a page. Goes through the free Jina Reader proxy
@@ -162,13 +265,7 @@ def fetch_page(url=PORT_URL):
     Returns None (and logs) on any network failure instead of letting the
     exception propagate and crash the whole run."""
     try:
-        resp = SESSION.get(
-            JINA_READER_BASE + url,
-            headers={"X-Respond-With": "html"},
-            timeout=45,
-        )
-        resp.raise_for_status()
-        return BeautifulSoup(resp.text, "html.parser")
+        return fetch_soup_via_jina(url, 45, _has_vessel_table)
     except requests.RequestException as exc:
         logger.error("Failed to fetch page %s via Jina Reader: %s", url, exc)
         # Diagnostics: these details help tell apart a generic app-level
@@ -232,17 +329,10 @@ def _fetch_vessel_details_uncached(vessel_url):
         return result
 
     try:
-        resp = SESSION.get(
-            JINA_READER_BASE + vessel_url,
-            headers={"X-Respond-With": "html"},
-            timeout=30,
-        )
-        resp.raise_for_status()
+        vsoup = fetch_soup_via_jina(vessel_url, 30, _looks_like_vessel_page)
     except requests.RequestException as exc:
         logger.warning("Failed to fetch vessel page %s via Jina Reader: %s", vessel_url, exc)
         return result
-
-    vsoup = BeautifulSoup(resp.text, "html.parser")
 
     # --- vessel name (best-effort) ---
     h1 = vsoup.find("h1")
@@ -764,7 +854,19 @@ def page_looks_valid(soup):
     text = soup.get_text()
     if "No Internet" in text and "Vessels In Port" not in text:
         return False
+    if not _has_vessel_table(soup):
+        logger.warning(
+            "Page has no vessel table (blocked/garbled/changed layout?). Starts with: %s",
+            text[:200].replace("\n", " "),
+        )
+        return False
     return True
+
+
+def _norm_key(key):
+    """Whitespace-insensitive version of an event key, so the same event
+    isn't treated as new just because spacing in the time text differs."""
+    return re.sub(r"\s+", "", key)
 
 
 # How many consecutive "seen once, not confirmed" cycles we tolerate before
@@ -790,7 +892,8 @@ def main():
     first_run = len(seen) == 0
 
     events = fetch_activity(soup)
-    new_events = [e for e in events if e["key"] not in seen]
+    seen_norm = {_norm_key(k) for k in seen}
+    new_events = [e for e in events if _norm_key(e["key"]) not in seen_norm]
 
     if new_events and not first_run:
         soup2 = fetch_page()
