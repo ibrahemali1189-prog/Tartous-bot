@@ -326,12 +326,6 @@
   "last_summary_date": "2026-09-28",
   "last_expected_sent": "2026-09-29T02:01:35.283346+03:00",
   "pending": {},
-  "zone_vessels": {
-    "341100002": {
-      "name": "MJ SOFIA [KN]",
-      "url": "https://www.myshiptracking.com/vessels/mj-sofia-mmsi-341100002-imo-9113381",
-      "entered_at": "2026-09-28T17:15:33.546504+03:00"
-    }
-  },
+  "zone_vessels": {},
   "last_zone_summary_date": "2026-09-28"
 }
