@@ -160,8 +160,8 @@ _MD_SEP_RE = re.compile(r"^\|(\s*:?-{3,}:?\s*\|)+\s*$")
 
 
 def _md_inline(text):
-    text = html_escape(text)
-    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = text.replace("**", "")
+    return html_escape(text)
 
 
 def _md_cell_to_html(cell):
@@ -512,7 +512,7 @@ def load_state():
                     "seen": data, "update_offset": 0,
                     "last_summary_date": "", "last_expected_sent": "",
                     "last_zone_summary_date": "",
-                    "pending": {}, "zone_vessels": {},
+                    "pending": {}, "zone_vessels": {}, "recent_departures": {},
                 }
             data.setdefault("update_offset", 0)
             data.setdefault("last_summary_date", "")
@@ -520,12 +520,13 @@ def load_state():
             data.setdefault("last_zone_summary_date", "")
             data.setdefault("pending", {})
             data.setdefault("zone_vessels", {})
+            data.setdefault("recent_departures", {})
             return data
     return {
         "seen": [], "update_offset": 0,
         "last_summary_date": "", "last_expected_sent": "",
         "last_zone_summary_date": "",
-        "pending": {}, "zone_vessels": {},
+        "pending": {}, "zone_vessels": {}, "recent_departures": {},
     }
 
 
@@ -602,6 +603,25 @@ def better_vessel_name(original_name, details):
     return original_name
 
 
+def split_date_time(raw, date_label="📅", time_label="🕐"):
+    """Turn a 'YYYY-MM-DD HH:MM' style string into two separate lines (date,
+    then time), instead of showing both on the same line."""
+    if not raw:
+        return ""
+    raw = raw.strip()
+    parts = raw.split(None, 1)
+    if len(parts) == 1:
+        # Handles a date and time glued together with no space in between,
+        # e.g. "2026-09-27" + "20:59" -> "2026-09-2720:59".
+        m = re.match(r"^(\d{4}-\d{2}-\d{2})(\d{1,2}:\d{2}(?::\d{2})?)$", parts[0])
+        if m:
+            parts = [m.group(1), m.group(2)]
+    if len(parts) == 2:
+        date_part, time_part = parts
+        return f"{date_label} {date_part}\n{time_label} {time_part}"
+    return f"{date_label} {raw}"
+
+
 def berth_label(vessel_details):
     lat, lon = vessel_details.get("lat"), vessel_details.get("lon")
     if lat is None or lon is None:
@@ -621,7 +641,7 @@ def format_vessel_line(v):
     if v.get("dwt"):
         extra.append(f"cargo: {v['dwt']}")
     extra_txt = f" ({', '.join(extra)})" if extra else ""
-    arrived_txt = f" — arrived: {v['arrived']}" if v.get("arrived") else ""
+    arrived_txt = f"\n{split_date_time(v['arrived'], '📅 arrived:', '🕐')}" if v.get("arrived") else ""
     return f"🚢 {v['name']}{arrived_txt}{extra_txt}"
 
 
@@ -665,7 +685,7 @@ def build_expected_message(soup, header="🕒 Expected Arrivals"):
             details = fetch_vessel_details(v.get("url"))
             name = better_vessel_name(v["name"], details)
             type_txt = f" ({details['type']})" if details["type"] else ""
-            eta_txt = f" — ETA: {v['eta']}" if v.get("eta") else ""
+            eta_txt = f"\n{split_date_time(v['eta'], 'ETA:', '🕐')}" if v.get("eta") else ""
             lines.append(f"🚢 {name}{type_txt}{eta_txt}")
     return "\n".join(lines)
 
@@ -712,6 +732,35 @@ def gather_tracked_vessels(soup):
     return result
 
 
+RECENT_DEPARTURE_WINDOW = timedelta(hours=6)
+
+
+def is_recent_departure(vid, state, now):
+    """True if `vid` had a DEPARTURE notification within the last
+    RECENT_DEPARTURE_WINDOW. Used to skip the Yatur zone-entry alert for a
+    ship that just left the port — its departure notification already
+    covers that it's now headed out through the area, so a separate
+    'entered Yatur' alert for the same ship would just be noise."""
+    departures = state.get("recent_departures", {})
+    ts = departures.get(vid)
+    if not ts:
+        return False
+    try:
+        return now - datetime.fromisoformat(ts) <= RECENT_DEPARTURE_WINDOW
+    except ValueError:
+        return False
+
+
+def prune_recent_departures(state, now):
+    departures = state.get("recent_departures", {})
+    for vid in list(departures.keys()):
+        try:
+            if now - datetime.fromisoformat(departures[vid]) > RECENT_DEPARTURE_WINDOW:
+                departures.pop(vid, None)
+        except ValueError:
+            departures.pop(vid, None)
+
+
 def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
     """Notify once per entry when a tracked vessel's latest reported
     position falls inside `zone`. Uses state['zone_vessels'] as a dict of
@@ -719,10 +768,15 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
     a new alert every run while it stays there — only on entry. When it
     later reports a position outside the zone, it's cleared, so a future
     re-entry will alert again. The stored name/url/entered_at is also reused
-    by maybe_send_zone_daily_summary() to list who's currently inside."""
+    by maybe_send_zone_daily_summary() to list who's currently inside.
+    Ships that recently departed the port are still tracked here (so they
+    show up in the daily Yatur summary) but don't trigger the instant
+    'entered Yatur' notification — see is_recent_departure()."""
     zone_state = state.setdefault("zone_vessels", {})
     currently_inside = set()
-    now_iso = datetime.now(TZ).isoformat()
+    now = datetime.now(TZ)
+    now_iso = now.isoformat()
+    prune_recent_departures(state, now)
 
     for vid, name, url in gather_tracked_vessels(soup):
         details = fetch_vessel_details(url)
@@ -732,16 +786,18 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
             currently_inside.add(vid)
             if vid not in zone_state:
                 name = better_vessel_name(name, details)
-                berth = berth_label(details)
-                berth_txt = f"\n⚓ {berth}" if berth else ""
-                type_txt = f" ({details['type']})" if details["type"] else ""
-                msg = (
-                    f"🟡 دخول سفينة إلى {zone_label}\n"
-                    f"🚢 {name}{type_txt}\n"
-                    f"📍 {details['lat']}, {details['lon']} "
-                    f"(آخر تحديث: {details.get('reported') or '—'}){berth_txt}"
-                )
-                send_telegram(msg)
+                if not is_recent_departure(vid, state, now):
+                    berth = berth_label(details)
+                    berth_txt = f"\n⚓ {berth}" if berth else ""
+                    type_txt = f" ({details['type']})" if details["type"] else ""
+                    reported = details.get("reported")
+                    reported_txt = f"\n{split_date_time(reported, 'آخر تحديث:', '🕐')}" if reported else ""
+                    msg = (
+                        f"🟡 دخول سفينة إلى {zone_label}\n"
+                        f"🚢 {name}{type_txt}\n"
+                        f"📍 {details['lat']}, {details['lon']}{reported_txt}{berth_txt}"
+                    )
+                    send_telegram(msg)
                 zone_state[vid] = {"name": name, "url": url, "entered_at": now_iso}
 
     # Vessels that were inside before but aren't anymore have left the zone;
@@ -775,7 +831,10 @@ def build_zone_summary_message(state, zone_label=ZONE_A_LABEL, header="🧭 ال
             entered_txt = ""
             if entered_at:
                 try:
-                    entered_txt = f" — دخلت: {datetime.fromisoformat(entered_at).strftime('%Y-%m-%d %H:%M')}"
+                    entered_txt = "\n" + split_date_time(
+                        datetime.fromisoformat(entered_at).strftime("%Y-%m-%d %H:%M"),
+                        "دخلت:", "🕐",
+                    )
                 except ValueError:
                     pass
             details = fetch_vessel_details(info.get("url"))
@@ -913,8 +972,11 @@ def main():
                     berth = berth_label(details)
                     berth_txt = f"\n⚓ {berth}" if berth else ""
                     icon = "🟢 ARRIVAL" if e["event"] == "ARRIVAL" else "🔴 DEPARTURE"
-                    msg = f"{icon}: 🚢 {vessel_name}{type_txt}\n⏱ {e['time']}{berth_txt}"
+                    msg = f"{icon}: 🚢 {vessel_name}{type_txt}\n{split_date_time(e['time'])}{berth_txt}"
                     send_telegram(msg)
+                    if e["event"] == "DEPARTURE":
+                        dep_vid = extract_vessel_id(e.get("url")) or e["vessel"]
+                        state.setdefault("recent_departures", {})[dep_vid] = datetime.now(TZ).isoformat()
                     seen[e["key"]] = None
                     pending.pop(e["key"], None)
                 else:
