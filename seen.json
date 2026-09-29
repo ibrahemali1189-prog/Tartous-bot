@@ -339,5 +339,6 @@
       "entered_at": "2026-09-29T10:15:26.874808+03:00"
     }
   },
-  "last_zone_summary_date": "2026-09-29"
+  "last_zone_summary_date": "2026-09-29",
+  "recent_departures": {}
 }
