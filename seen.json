@@ -333,6 +333,11 @@
       "name": "GMA SULTAN [TG]",
       "url": "https://www.myshiptracking.com/vessels/gma-sultan-mmsi-671517100-imo-9115406",
       "entered_at": "2026-09-29T10:15:26.874808+03:00"
+    },
+    "667001351": {
+      "name": "NIKSAR [SL]",
+      "url": "https://www.myshiptracking.com/vessels/niksar-mmsi-667001351-imo-8871003",
+      "entered_at": "2026-09-29T13:45:21.930115+03:00"
     }
   },
   "last_zone_summary_date": "2026-09-29"
