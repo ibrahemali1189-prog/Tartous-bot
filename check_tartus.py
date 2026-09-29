@@ -882,6 +882,11 @@ def main():
         logger.warning("Page did not look valid on this run; skipping.")
         return
 
+    logger.info(
+        "Fetch OK. In port/anchorage: %d | Expected: %d | Activity rows: %d",
+        len(fetch_in_port(soup)), len(fetch_expected(soup)), len(fetch_activity(soup)),
+    )
+
     state = load_state()
     handle_commands(soup, state)
     # Use a dict as an ordered set: preserves the real order keys were
