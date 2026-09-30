@@ -343,6 +343,11 @@
       "name": "AK LIZA [BB]",
       "url": "https://www.myshiptracking.com/vessels/ak-liza-mmsi-314918000-imo-9300855",
       "entered_at": "2026-09-30T01:00:48.571174+03:00"
+    },
+    "314705000": {
+      "name": "BRAVE ARSENAL [BB]",
+      "url": "https://www.myshiptracking.com/vessels/brave-arsenal-mmsi-314705000-imo-9616101",
+      "entered_at": "2026-09-30T12:00:32.403055+03:00"
     }
   },
   "last_zone_summary_date": "2026-09-30",
