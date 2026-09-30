@@ -333,23 +333,7 @@
   "last_summary_date": "2026-09-30",
   "last_expected_sent": "2026-09-30T12:46:31.337863+03:00",
   "pending": {},
-  "zone_vessels": {
-    "671517100": {
-      "name": "GMA SULTAN [TG]",
-      "url": "https://www.myshiptracking.com/vessels/gma-sultan-mmsi-671517100-imo-9115406",
-      "entered_at": "2026-09-29T10:15:26.874808+03:00"
-    },
-    "314918000": {
-      "name": "AK LIZA [BB]",
-      "url": "https://www.myshiptracking.com/vessels/ak-liza-mmsi-314918000-imo-9300855",
-      "entered_at": "2026-09-30T01:00:48.571174+03:00"
-    },
-    "314705000": {
-      "name": "BRAVE ARSENAL [BB]",
-      "url": "https://www.myshiptracking.com/vessels/brave-arsenal-mmsi-314705000-imo-9616101",
-      "entered_at": "2026-09-30T12:00:32.403055+03:00"
-    }
-  },
+  "zone_vessels": {},
   "last_zone_summary_date": "2026-09-30",
   "recent_departures": {}
 }
