@@ -26,6 +26,7 @@ logger = logging.getLogger("tartous_bot")
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_IDS = [c.strip() for c in os.environ["TELEGRAM_CHAT_ID"].split(",") if c.strip()]
+logger.info("Configured Telegram recipients: %d", len(CHAT_IDS))
 
 HEADERS = {
     "User-Agent": (
