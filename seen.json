@@ -346,7 +346,5 @@
     }
   },
   "last_zone_summary_date": "2026-09-30",
-  "recent_departures": {
-    "341799001": "2026-09-30T01:00:48.571135+03:00"
-  }
+  "recent_departures": {}
 }
