@@ -734,6 +734,50 @@ def gather_tracked_vessels(soup):
 
 RECENT_DEPARTURE_WINDOW = timedelta(hours=6)
 
+# If a vessel's last reported AIS position is older than this, we don't
+# trust it as "where the vessel is right now" — treat it like the position
+# is unknown rather than using a stale coordinate to claim it's inside the
+# Yatur zone this very moment.
+MAX_POSITION_AGE = timedelta(hours=24)
+
+_REPORTED_TS_FORMATS = (
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%d-%m-%Y %H:%M:%S",
+    "%d-%m-%Y %H:%M",
+    "%m-%d-%Y %H:%M:%S",
+    "%m-%d-%Y %H:%M",
+)
+
+
+def parse_reported_timestamp(raw):
+    """Best-effort parse of the vessel page's 'last reported' timestamp,
+    trying the date/time formats this site is known to use. Returns a
+    naive datetime, or None if the string doesn't match any of them."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    for fmt in _REPORTED_TS_FORMATS:
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def position_is_stale(details, now):
+    """True if we can't confirm the vessel's reported position is recent
+    enough to trust for zone-membership purposes."""
+    reported = details.get("reported")
+    parsed = parse_reported_timestamp(reported)
+    if parsed is None:
+        # Unknown/unparseable timestamp: don't risk a false positive on
+        # a possibly-stale position, but log once so a persistent format
+        # change on the site doesn't go unnoticed.
+        logger.warning("Could not parse reported timestamp %r; treating as stale.", reported)
+        return True
+    return (now.replace(tzinfo=None) - parsed) > MAX_POSITION_AGE
+
 
 def is_recent_departure(vid, state, now):
     """True if `vid` had a DEPARTURE notification within the last
@@ -781,6 +825,8 @@ def check_zone_entries(soup, state, zone=ZONE_A, zone_label=ZONE_A_LABEL):
     for vid, name, url in gather_tracked_vessels(soup):
         details = fetch_vessel_details(url)
         if details["lat"] is None or details["lon"] is None:
+            continue
+        if position_is_stale(details, now):
             continue
         if point_in_zone(details["lat"], details["lon"], zone):
             currently_inside.add(vid)
