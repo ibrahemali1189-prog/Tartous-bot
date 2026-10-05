@@ -631,7 +631,23 @@ def berth_label(vessel_details):
     return f"Berth {berth}" if berth else None
 
 
-def format_vessel_line(v):
+def format_stay_duration(arrived_raw, now):
+    """'X days, Y hours' since the vessel's listed arrival time, or None if
+    the arrival text can't be parsed."""
+    parsed = parse_reported_timestamp(arrived_raw)
+    if parsed is None:
+        return None
+    delta = now.replace(tzinfo=None) - parsed
+    if delta.total_seconds() < 0:
+        return None
+    days, rem = divmod(int(delta.total_seconds()), 86400)
+    hours = rem // 3600
+    if days > 0:
+        return f"{days} يوم" + (f" و{hours} ساعة" if hours else "")
+    return f"{hours} ساعة"
+
+
+def format_vessel_line(v, now=None):
     extra = []
     if v.get("area"):
         extra.append(v["area"])
@@ -643,7 +659,22 @@ def format_vessel_line(v):
         extra.append(f"cargo: {v['dwt']}")
     extra_txt = f" ({', '.join(extra)})" if extra else ""
     arrived_txt = f"\n{split_date_time(v['arrived'], '📅 arrived:', '🕐')}" if v.get("arrived") else ""
-    return f"🚢 {v['name']}{arrived_txt}{extra_txt}"
+
+    duration_txt = ""
+    if v.get("arrived") and now is not None:
+        duration = format_stay_duration(v["arrived"], now)
+        if duration:
+            duration_txt = f"\n⏳ مدة البقاء: {duration}"
+
+    # Transparency note: if this vessel is listed as docked ("Port Berth")
+    # but we couldn't match it to a specific berth, show when its position
+    # was last reported — a missing berth is usually a stale AIS position,
+    # not a bot bug, and this makes that visible instead of silent.
+    stale_note = ""
+    if v.get("area") == "Port Berth" and not v.get("berth") and v.get("position_reported"):
+        stale_note = f"\n❔ آخر تحديث موقع GPS: {v['position_reported']} (قد يكون قديم، لذا لم يُحدَّد الرصيف)"
+
+    return f"🚢 {v['name']}{arrived_txt}{duration_txt}{extra_txt}{stale_note}"
 
 
 def maybe_send_daily_summary(soup, state):
@@ -661,12 +692,13 @@ def maybe_send_daily_summary(soup, state):
 
     if in_port:
         lines.append("Vessels in port:")
-        for v in in_port:
+        for idx, v in enumerate(in_port, start=1):
             details = fetch_vessel_details(v.get("url"))
             v["name"] = better_vessel_name(v["name"], details)
             v["type"] = details["type"]
             v["berth"] = berth_label(details)
-            lines.append(format_vessel_line(v))
+            v["position_reported"] = details.get("reported")
+            lines.append(f"{idx}. {format_vessel_line(v, now)}")
 
     send_telegram("\n".join(lines))
     state["last_summary_date"] = today_str
@@ -906,6 +938,76 @@ def maybe_send_zone_daily_summary(state, zone_label=ZONE_A_LABEL):
     state["last_zone_summary_date"] = today_str
 
 
+def build_status_message(soup, state):
+    """Quick health check: when the bot last fetched the site successfully,
+    and current vessel counts — without waiting for the daily summary."""
+    last_success = state.get("last_success_at")
+    if last_success:
+        try:
+            dt = datetime.fromisoformat(last_success)
+            last_success_txt = split_date_time(dt.strftime("%Y-%m-%d %H:%M"), "آخر تحديث ناجح:")
+        except ValueError:
+            last_success_txt = f"آخر تحديث ناجح: {last_success}"
+    else:
+        last_success_txt = "آخر تحديث ناجح: غير معروف"
+
+    in_port = fetch_in_port(soup)
+    expected = fetch_expected(soup)
+    zone_count = len(state.get("zone_vessels", {}))
+    recipients = len(CHAT_IDS)
+
+    lines = [
+        "🩺 حالة البوت",
+        last_success_txt,
+        f"⚓ سفن بالمرفأ/الأنكرج: {len(in_port)}",
+        f"🕒 سفن متوقع وصولها: {len(expected)}",
+        f"🧭 سفن حالياً بمنطقة {ZONE_A_LABEL}: {zone_count}",
+        f"📨 عدد المستلمين المضبوطين: {recipients}",
+    ]
+    return "\n".join(lines)
+
+
+def build_berths_message(soup, now=None):
+    """Which berth each docked vessel is matched to right now, and which
+    berths are empty. Vessel positions are re-fetched fresh here (not
+    cached from an earlier daily summary) so this reflects the latest
+    known AIS data at the moment the command is answered."""
+    if now is None:
+        now = datetime.now(TZ)
+    in_port = [v for v in fetch_in_port(soup) if v.get("area") == "Port Berth"]
+
+    assigned = {}  # berth number -> list of vessel names
+    unmatched = []
+    for v in in_port:
+        details = fetch_vessel_details(v.get("url"))
+        name = better_vessel_name(v["name"], details)
+        berth = berth_label(details)
+        if berth:
+            berth_num = berth.replace("Berth ", "")
+            assigned.setdefault(berth_num, []).append(name)
+        else:
+            note = ""
+            reported = details.get("reported")
+            if reported:
+                note = f" (آخر موقع: {reported})"
+            unmatched.append(f"{name}{note}")
+
+    lines = [f"⚓ حالة الأرصفة - مرفأ طرطوس ({now.strftime('%Y-%m-%d %H:%M')})\n"]
+    for berth_num in sorted(BERTHS.keys(), key=int):
+        if berth_num in assigned:
+            vessels = ", ".join(assigned[berth_num])
+            lines.append(f"🔴 رصيف {berth_num}: {vessels}")
+        else:
+            lines.append(f"🟢 رصيف {berth_num}: شاغر")
+
+    if unmatched:
+        lines.append("\nسفن بالمرفأ بلا رصيف محدد (موقع GPS غير مؤكد):")
+        for name in unmatched:
+            lines.append(f"🚢 {name}")
+
+    return "\n".join(lines)
+
+
 def handle_commands(soup, state):
     """Check for any new Telegram messages since the last run and reply to
     recognized commands. Only messages coming from a chat id already in
@@ -946,6 +1048,12 @@ def handle_commands(soup, state):
             send_telegram_reply(chat_id, reply)
         elif command == "/yatur":
             reply = build_zone_summary_message(state)
+            send_telegram_reply(chat_id, reply)
+        elif command == "/status":
+            reply = build_status_message(soup, state)
+            send_telegram_reply(chat_id, reply)
+        elif command == "/berths":
+            reply = build_berths_message(soup)
             send_telegram_reply(chat_id, reply)
         else:
             logger.info("Received unrecognized command: %s", command)
@@ -994,6 +1102,7 @@ def main():
     )
 
     state = load_state()
+    state["last_success_at"] = datetime.now(TZ).isoformat()
     handle_commands(soup, state)
     # Use a dict as an ordered set: preserves the real order keys were
     # first seen in, so pruning later (save_state) drops the oldest ones
