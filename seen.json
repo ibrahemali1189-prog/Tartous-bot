@@ -360,14 +360,8 @@
   "last_summary_date": "2026-10-10",
   "last_expected_sent": "2026-10-10T11:16:29.003451+03:00",
   "pending": {},
-  "zone_vessels": {
-    "341946001": {
-      "name": "LORAL [KN]",
-      "url": "https://www.myshiptracking.com/vessels/loral-mmsi-341946001-imo-1033834",
-      "entered_at": "2026-10-10T13:30:27.231071+03:00"
-    }
-  },
+  "zone_vessels": {},
   "last_zone_summary_date": "2026-10-10",
   "recent_departures": {},
-  "last_success_at": "2026-10-10T13:30:26.758518+03:00"
+  "last_success_at": "2026-10-10T13:45:26.433539+03:00"
 }
