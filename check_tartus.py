@@ -672,7 +672,10 @@ def format_vessel_line(v, now=None):
     # not a bot bug, and this makes that visible instead of silent.
     stale_note = ""
     if v.get("area") == "Port Berth" and not v.get("berth") and v.get("position_reported"):
-        stale_note = f"\n❔ آخر تحديث موقع GPS: {v['position_reported']} (قد يكون قديم، لذا لم يُحدَّد الرصيف)"
+        stale_note = (
+            f"\n{split_date_time(v['position_reported'], '❔ آخر تحديث موقع GPS:', '🕐')}"
+            f"\n(قد يكون قديم، لذا لم يُحدَّد الرصيف)"
+        )
 
     return f"🚢 {v['name']}{arrived_txt}{duration_txt}{extra_txt}{stale_note}"
 
