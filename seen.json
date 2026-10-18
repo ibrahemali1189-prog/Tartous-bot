@@ -386,7 +386,8 @@
     "271052243|DEPARTURE|2026-10-1610:25",
     "341804001|DEPARTURE|2026-10-1706:01",
     "620800074|DEPARTURE|2026-10-1714:01",
-    "271048807|DEPARTURE|2026-10-1718:00"
+    "271048807|DEPARTURE|2026-10-1718:00",
+    "667002514|DEPARTURE|2026-10-1804:52"
   ],
   "update_offset": 362578852,
   "last_summary_date": "2026-10-18",
@@ -394,6 +395,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-10-18",
-  "recent_departures": {},
-  "last_success_at": "2026-10-18T08:15:20.147734+03:00"
+  "recent_departures": {
+    "667002514": "2026-10-18T08:30:34.274841+03:00"
+  },
+  "last_success_at": "2026-10-18T08:30:29.063823+03:00"
 }
