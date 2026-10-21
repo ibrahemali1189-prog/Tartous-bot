@@ -401,12 +401,12 @@
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-10-21",
-  "last_expected_sent": "2026-10-21T19:46:24.258124+03:00",
+  "last_expected_sent": "2026-10-21T22:46:32.736237+03:00",
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-10-21",
   "recent_departures": {
     "352001609": "2026-10-21T19:00:43.451203+03:00"
   },
-  "last_success_at": "2026-10-21T22:30:29.014688+03:00"
+  "last_success_at": "2026-10-21T22:45:22.905740+03:00"
 }
