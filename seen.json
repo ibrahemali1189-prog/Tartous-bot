@@ -400,11 +400,11 @@
     "352001609|DEPARTURE|2026-10-2115:09"
   ],
   "update_offset": 362578853,
-  "last_summary_date": "2026-10-21",
+  "last_summary_date": "2026-10-22",
   "last_expected_sent": "2026-10-22T05:16:22.194119+03:00",
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-10-22",
   "recent_departures": {},
-  "last_success_at": "2026-10-22T07:45:23.016776+03:00"
+  "last_success_at": "2026-10-22T08:00:34.429141+03:00"
 }
