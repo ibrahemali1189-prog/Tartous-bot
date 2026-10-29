@@ -433,11 +433,11 @@
     "671029100|ARRIVAL|2026-10-2814:52"
   ],
   "update_offset": 362578853,
-  "last_summary_date": "2026-10-28",
+  "last_summary_date": "2026-10-29",
   "last_expected_sent": "2026-10-29T07:46:21.877080+03:00",
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-10-29",
   "recent_departures": {},
-  "last_success_at": "2026-10-29T07:45:21.060483+03:00"
+  "last_success_at": "2026-10-29T08:00:34.758418+03:00"
 }
