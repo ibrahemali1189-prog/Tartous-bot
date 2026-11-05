@@ -459,11 +459,11 @@
     "341277002|ARRIVAL|2026-11-0412:17"
   ],
   "update_offset": 362578853,
-  "last_summary_date": "2026-11-04",
+  "last_summary_date": "2026-11-05",
   "last_expected_sent": "2026-11-05T06:31:34.381216+03:00",
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-05",
   "recent_departures": {},
-  "last_success_at": "2026-11-05T07:45:20.351220+03:00"
+  "last_success_at": "2026-11-05T08:00:30.762049+03:00"
 }
