@@ -479,9 +479,9 @@
   "last_expected_sent": "2026-11-09T05:01:33.810966+03:00",
   "pending": {},
   "zone_vessels": {},
-  "last_zone_summary_date": "2026-11-08",
+  "last_zone_summary_date": "2026-11-09",
   "recent_departures": {
     "636021826": "2026-11-09T01:53:04.773868+03:00"
   },
-  "last_success_at": "2026-11-09T06:45:21.940357+03:00"
+  "last_success_at": "2026-11-09T07:00:30.490664+03:00"
 }
