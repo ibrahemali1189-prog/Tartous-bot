@@ -475,13 +475,11 @@
     "636021826|DEPARTURE|2026-11-0821:52"
   ],
   "update_offset": 362578853,
-  "last_summary_date": "2026-11-08",
-  "last_expected_sent": "2026-11-09T05:01:33.810966+03:00",
+  "last_summary_date": "2026-11-09",
+  "last_expected_sent": "2026-11-09T08:01:34.411547+03:00",
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-09",
-  "recent_departures": {
-    "636021826": "2026-11-09T01:53:04.773868+03:00"
-  },
-  "last_success_at": "2026-11-09T07:45:20.718669+03:00"
+  "recent_departures": {},
+  "last_success_at": "2026-11-09T08:00:32.682111+03:00"
 }
