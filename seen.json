@@ -501,7 +501,7 @@
     "671379100|DEPARTURE|2026-11-1201:41"
   ],
   "update_offset": 362578853,
-  "last_summary_date": "2026-11-11",
+  "last_summary_date": "2026-11-12",
   "last_expected_sent": "2026-11-12T07:31:28.432645+03:00",
   "pending": {},
   "zone_vessels": {},
@@ -509,5 +509,5 @@
   "recent_departures": {
     "671379100": "2026-11-12T04:45:31.448806+03:00"
   },
-  "last_success_at": "2026-11-12T07:45:24.638682+03:00"
+  "last_success_at": "2026-11-12T08:00:35.699250+03:00"
 }
