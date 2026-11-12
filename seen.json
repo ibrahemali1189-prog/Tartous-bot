@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-0906:24|ARRIVAL|AXIS I [TG]",
     "2026-08-0908:06|DEPARTURE|AXIS I [TG]",
     "2026-08-0908:25|ARRIVAL|AXIS I [TG]",
     "2026-08-0909:06|DEPARTURE|AK.GARY [SL]",
@@ -499,7 +498,8 @@
     "370751000|DEPARTURE|2026-11-1114:09",
     "677071800|ARRIVAL|2026-11-1120:57",
     "671379100|DEPARTURE|2026-11-1201:41",
-    "314900000|DEPARTURE|2026-11-1208:19"
+    "314900000|DEPARTURE|2026-11-1208:19",
+    "620050000|DEPARTURE|2026-11-1220:08"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-12",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-12",
-  "recent_departures": {},
-  "last_success_at": "2026-11-13T00:15:25.349195+03:00"
+  "recent_departures": {
+    "620050000": "2026-11-13T00:30:38.206719+03:00"
+  },
+  "last_success_at": "2026-11-13T00:30:33.546467+03:00"
 }
