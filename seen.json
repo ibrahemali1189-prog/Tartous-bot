@@ -1,7 +1,5 @@
 {
   "seen": [
-    "2026-08-0910:01|DEPARTURE|LEGEND [KN]",
-    "2026-08-0912:02|DEPARTURE|PRINCE NEDAL [KN]",
     "2026-08-0912:08|ARRIVAL|MN GLORY [VU]",
     "2026-08-0915:11|ARRIVAL|MARIONA [KM]",
     "2026-08-0915:14|DEPARTURE|MARIONA [KM]",
@@ -499,7 +497,9 @@
     "620050000|DEPARTURE|2026-11-1220:08",
     "511101077|DEPARTURE|2026-11-1300:05",
     "671443100|ARRIVAL|2026-11-1304:37",
-    "677071800|DEPARTURE|2026-11-1312:16"
+    "677071800|DEPARTURE|2026-11-1312:16",
+    "375797000|DEPARTURE|2026-11-1319:00",
+    "356540000|DEPARTURE|2026-11-1318:59"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-13",
@@ -507,6 +507,9 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-13",
-  "recent_departures": {},
-  "last_success_at": "2026-11-13T22:30:31.007480+03:00"
+  "recent_departures": {
+    "375797000": "2026-11-13T22:45:35.004759+03:00",
+    "356540000": "2026-11-13T22:45:39.266647+03:00"
+  },
+  "last_success_at": "2026-11-13T22:45:30.562788+03:00"
 }
