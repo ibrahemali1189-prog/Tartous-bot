@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-0915:14|DEPARTURE|MARIONA [KM]",
     "2026-08-0918:19|DEPARTURE|AXIS I [TG]",
     "2026-08-0918:21|ARRIVAL|AXIS I [TG]",
     "2026-08-1002:57|DEPARTURE|MOON GATE [SM]",
@@ -499,7 +498,8 @@
     "375797000|DEPARTURE|2026-11-1319:00",
     "356540000|DEPARTURE|2026-11-1318:59",
     "375797000|ARRIVAL|2026-11-1322:53",
-    "477013300|ARRIVAL|2026-11-1405:29"
+    "477013300|ARRIVAL|2026-11-1405:29",
+    "375797000|DEPARTURE|2026-11-1409:09"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-14",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-14",
-  "recent_departures": {},
-  "last_success_at": "2026-11-14T12:30:29.554710+03:00"
+  "recent_departures": {
+    "375797000": "2026-11-14T12:45:29.032444+03:00"
+  },
+  "last_success_at": "2026-11-14T12:45:24.117461+03:00"
 }
