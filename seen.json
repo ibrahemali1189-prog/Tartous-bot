@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-0915:11|ARRIVAL|MARIONA [KM]",
     "2026-08-0915:14|DEPARTURE|MARIONA [KM]",
     "2026-08-0918:19|DEPARTURE|AXIS I [TG]",
     "2026-08-0918:21|ARRIVAL|AXIS I [TG]",
@@ -499,7 +498,8 @@
     "677071800|DEPARTURE|2026-11-1312:16",
     "375797000|DEPARTURE|2026-11-1319:00",
     "356540000|DEPARTURE|2026-11-1318:59",
-    "375797000|ARRIVAL|2026-11-1322:53"
+    "375797000|ARRIVAL|2026-11-1322:53",
+    "477013300|ARRIVAL|2026-11-1405:29"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-14",
@@ -508,5 +508,5 @@
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-14",
   "recent_departures": {},
-  "last_success_at": "2026-11-14T08:45:20.948092+03:00"
+  "last_success_at": "2026-11-14T09:00:31.794315+03:00"
 }
