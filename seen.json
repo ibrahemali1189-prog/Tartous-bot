@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-1005:43|DEPARTURE|MN GLORY [VU]",
     "2026-08-1007:40|ARRIVAL|HILKE [AG]",
     "2026-08-1010:34|ARRIVAL|MJ SOFIA [KN]",
     "2026-08-1013:34|DEPARTURE|AXIS I [TG]",
@@ -499,7 +498,8 @@
     "375797000|ARRIVAL|2026-11-1410:49",
     "314783000|DEPARTURE|2026-11-1410:40",
     "375797000|DEPARTURE|2026-11-1410:39",
-    "375797000|ARRIVAL|2026-11-1410:04"
+    "375797000|ARRIVAL|2026-11-1410:04",
+    "671819000|DEPARTURE|2026-11-1505:53"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-15",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-15",
-  "recent_departures": {},
-  "last_success_at": "2026-11-15T09:15:22.421365+03:00"
+  "recent_departures": {
+    "671819000": "2026-11-15T09:30:46.367158+03:00"
+  },
+  "last_success_at": "2026-11-15T09:30:40.820881+03:00"
 }
