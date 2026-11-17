@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-1013:38|DEPARTURE|LEGEND [PA]",
     "2026-08-1013:40|ARRIVAL|AXIS I [TG]",
     "2026-08-1013:43|ARRIVAL|LEGEND [PA]",
     "2026-08-1014:42|DEPARTURE|AK KARAM [BB]",
@@ -499,7 +498,8 @@
     "671819000|DEPARTURE|2026-11-1505:53",
     "352886000|DEPARTURE|2026-11-1608:45",
     "620021000|ARRIVAL|2026-11-1614:45",
-    "268246901|ARRIVAL|2026-11-1614:17"
+    "268246901|ARRIVAL|2026-11-1614:17",
+    "620843000|ARRIVAL|2026-11-1708:25"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-17",
@@ -508,5 +508,5 @@
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-17",
   "recent_departures": {},
-  "last_success_at": "2026-11-17T11:30:31.714391+03:00"
+  "last_success_at": "2026-11-17T12:15:25.741085+03:00"
 }
