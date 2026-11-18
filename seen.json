@@ -507,8 +507,6 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-18",
-  "recent_departures": {
-    "677084300": "2026-11-18T09:15:28.657718+03:00"
-  },
-  "last_success_at": "2026-11-18T15:15:25.313803+03:00"
+  "recent_departures": {},
+  "last_success_at": "2026-11-18T15:45:24.770970+03:00"
 }
