@@ -502,11 +502,11 @@
     "677064500|ARRIVAL|2026-11-1714:28"
   ],
   "update_offset": 362578853,
-  "last_summary_date": "2026-11-17",
+  "last_summary_date": "2026-11-18",
   "last_expected_sent": "2026-11-18T05:16:34.418376+03:00",
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-18",
   "recent_departures": {},
-  "last_success_at": "2026-11-18T07:45:23.001374+03:00"
+  "last_success_at": "2026-11-18T08:00:36.387492+03:00"
 }
