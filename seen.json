@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-1013:43|ARRIVAL|LEGEND [PA]",
     "2026-08-1014:42|DEPARTURE|AK KARAM [BB]",
     "2026-08-1016:23|DEPARTURE|AYSHA M [KM]",
     "2026-08-1103:40|DEPARTURE|ELEVATION [LB]",
@@ -499,7 +498,8 @@
     "620021000|ARRIVAL|2026-11-1614:45",
     "268246901|ARRIVAL|2026-11-1614:17",
     "620843000|ARRIVAL|2026-11-1708:25",
-    "677064500|ARRIVAL|2026-11-1714:28"
+    "677064500|ARRIVAL|2026-11-1714:28",
+    "677084300|DEPARTURE|2026-11-1805:15"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-18",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-18",
-  "recent_departures": {},
-  "last_success_at": "2026-11-18T09:00:35.028418+03:00"
+  "recent_departures": {
+    "677084300": "2026-11-18T09:15:28.657718+03:00"
+  },
+  "last_success_at": "2026-11-18T09:15:23.614638+03:00"
 }
