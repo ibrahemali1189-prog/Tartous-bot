@@ -1,7 +1,5 @@
 {
   "seen": [
-    "2026-08-1109:47|DEPARTURE|LEADER M [KN]",
-    "2026-08-1111:07|DEPARTURE|AXIS I [TG]",
     "2026-08-1111:31|ARRIVAL|AXIS I [TG]",
     "2026-08-1115:04|DEPARTURE|LEVANT [AW]",
     "2026-08-1116:15|DEPARTURE|AL FATH [VC]",
@@ -499,7 +497,9 @@
     "677084300|DEPARTURE|2026-11-1805:15",
     "671811000|ARRIVAL|2026-11-1803:19",
     "667002518|DEPARTURE|2026-11-1905:22",
-    "677090200|DEPARTURE|2026-11-1908:47"
+    "677090200|DEPARTURE|2026-11-1908:47",
+    "671811000|ARRIVAL|2026-11-1916:08",
+    "671811000|DEPARTURE|2026-11-1915:45"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-19",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-19",
-  "recent_departures": {},
-  "last_success_at": "2026-11-19T19:30:35.474112+03:00"
+  "recent_departures": {
+    "671811000": "2026-11-19T19:55:01.835425+03:00"
+  },
+  "last_success_at": "2026-11-19T19:54:55.238550+03:00"
 }
