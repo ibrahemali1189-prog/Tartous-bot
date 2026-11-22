@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-1300:25|ARRIVAL|MILLAC [KM]",
     "2026-08-1300:26|DEPARTURE|MILLAC [KM]",
     "2026-08-1303:46|ARRIVAL|MED DENIZLI [TR]",
     "2026-08-1314:15|DEPARTURE|HILKE [AG]",
@@ -499,7 +498,8 @@
     "271052243|ARRIVAL|2026-11-2108:21",
     "375797000|ARRIVAL|2026-11-2108:19",
     "671978000|DEPARTURE|2026-11-2114:45",
-    "341088002|DEPARTURE|2026-11-2121:03"
+    "341088002|DEPARTURE|2026-11-2121:03",
+    "671413100|DEPARTURE|2026-11-2212:01"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-22",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-22",
-  "recent_departures": {},
-  "last_success_at": "2026-11-22T14:45:24.759979+03:00"
+  "recent_departures": {
+    "671413100": "2026-11-22T15:15:27.473288+03:00"
+  },
+  "last_success_at": "2026-11-22T15:15:22.664918+03:00"
 }
