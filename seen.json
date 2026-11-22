@@ -1,7 +1,5 @@
 {
   "seen": [
-    "2026-08-1303:46|ARRIVAL|MED DENIZLI [TR]",
-    "2026-08-1314:15|DEPARTURE|HILKE [AG]",
     "2026-08-1316:04|DEPARTURE|LEGEND [PA]",
     "2026-08-1317:21|ARRIVAL|LEGEND [PA]",
     "2026-08-1319:10|DEPARTURE|MED DENIZLI [TR]",
@@ -499,7 +497,9 @@
     "671978000|DEPARTURE|2026-11-2114:45",
     "341088002|DEPARTURE|2026-11-2121:03",
     "671413100|DEPARTURE|2026-11-2212:01",
-    "677054000|DEPARTURE|2026-11-2213:17"
+    "677054000|DEPARTURE|2026-11-2213:17",
+    "271052243|DEPARTURE|2026-11-2220:31",
+    "677064500|DEPARTURE|2026-11-2219:42"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-22",
@@ -507,6 +507,9 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-22",
-  "recent_departures": {},
-  "last_success_at": "2026-11-22T23:45:22.101191+03:00"
+  "recent_departures": {
+    "271052243": "2026-11-23T00:00:38.173835+03:00",
+    "677064500": "2026-11-23T00:00:42.383784+03:00"
+  },
+  "last_success_at": "2026-11-23T00:00:33.140713+03:00"
 }
