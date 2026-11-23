@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-1413:27|DEPARTURE|GOLDEN STAR [BB]",
     "2026-08-1502:18|DEPARTURE|LEGEND [PA]",
     "2026-08-1502:45|ARRIVAL|LEGEND [PA]",
     "2026-08-1505:32|DEPARTURE|MJ SOFIA [KN]",
@@ -499,7 +498,8 @@
     "677064500|DEPARTURE|2026-11-2219:42",
     "375797000|ARRIVAL|2026-11-2305:49",
     "242494400|ARRIVAL|2026-11-2305:49",
-    "375797000|DEPARTURE|2026-11-2305:29"
+    "375797000|DEPARTURE|2026-11-2305:29",
+    "667001640|DEPARTURE|2026-11-2314:01"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-23",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-23",
-  "recent_departures": {},
-  "last_success_at": "2026-11-23T17:00:35.778571+03:00"
+  "recent_departures": {
+    "667001640": "2026-11-23T17:15:34.088957+03:00"
+  },
+  "last_success_at": "2026-11-23T17:15:28.298406+03:00"
 }
