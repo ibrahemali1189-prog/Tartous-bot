@@ -1,7 +1,5 @@
 {
   "seen": [
-    "2026-08-1510:13|ARRIVAL|BR_BROTHER [KM]",
-    "2026-08-1517:30|DEPARTURE|MEDIQUEEN [LR]",
     "2026-08-1520:51|ARRIVAL|MEDIQUEEN [LR]",
     "2026-08-1605:30|DEPARTURE|LEGEND [PA]",
     "2026-08-1610:30|DEPARTURE|MEDIQUEEN [LR]",
@@ -499,7 +497,9 @@
     "667001640|DEPARTURE|2026-11-2314:01",
     "341519002|DEPARTURE|2026-11-2312:37",
     "312726000|DEPARTURE|2026-11-2321:39",
-    "242494400|DEPARTURE|2026-11-2400:01"
+    "242494400|DEPARTURE|2026-11-2400:01",
+    "620999052|ARRIVAL|2026-11-2414:50",
+    "341624001|DEPARTURE|2026-11-2411:41"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-24",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-24",
-  "recent_departures": {},
-  "last_success_at": "2026-11-24T17:30:31.014239+03:00"
+  "recent_departures": {
+    "341624001": "2026-11-24T18:00:50.911647+03:00"
+  },
+  "last_success_at": "2026-11-24T18:00:37.872734+03:00"
 }
