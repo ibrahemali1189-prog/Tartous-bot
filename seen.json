@@ -502,14 +502,13 @@
     "242494400|DEPARTURE|2026-11-2400:01"
   ],
   "update_offset": 362578853,
-  "last_summary_date": "2026-11-23",
+  "last_summary_date": "2026-11-24",
   "last_expected_sent": "2026-11-24T07:31:28.592092+03:00",
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-24",
   "recent_departures": {
-    "312726000": "2026-11-24T01:30:38.883750+03:00",
     "242494400": "2026-11-24T04:15:27.751546+03:00"
   },
-  "last_success_at": "2026-11-24T07:30:28.421197+03:00"
+  "last_success_at": "2026-11-24T08:00:33.910599+03:00"
 }
