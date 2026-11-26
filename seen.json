@@ -1,7 +1,5 @@
 {
   "seen": [
-    "2026-08-1616:58|DEPARTURE|ROAA QUEEN [KM]",
-    "2026-08-1706:48|DEPARTURE|OLMA [GW]",
     "2026-08-1717:27|ARRIVAL|NANA MOON [TZ]",
     "2026-08-1722:16|DEPARTURE|AXIS I [TG]",
     "2026-08-1722:56|ARRIVAL|AXIS I [TG]",
@@ -499,7 +497,9 @@
     "341944001|ARRIVAL|2026-11-2421:13",
     "341944001|DEPARTURE|2026-11-2421:17",
     "667002216|ARRIVAL|2026-11-2511:41",
-    "620999052|DEPARTURE|2026-11-2517:19"
+    "620999052|DEPARTURE|2026-11-2517:19",
+    "341883001|DEPARTURE|2026-11-2604:14",
+    "620999052|ARRIVAL|2026-11-2604:12"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-25",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-26",
-  "recent_departures": {},
-  "last_success_at": "2026-11-26T07:15:22.907384+03:00"
+  "recent_departures": {
+    "341883001": "2026-11-26T07:30:35.259349+03:00"
+  },
+  "last_success_at": "2026-11-26T07:30:30.363739+03:00"
 }
