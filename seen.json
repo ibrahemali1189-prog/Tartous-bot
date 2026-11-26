@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-1717:27|ARRIVAL|NANA MOON [TZ]",
     "2026-08-1722:16|DEPARTURE|AXIS I [TG]",
     "2026-08-1722:56|ARRIVAL|AXIS I [TG]",
     "2026-08-1912:51|DEPARTURE|BR_BROTHER [KM]",
@@ -499,14 +498,17 @@
     "667002216|ARRIVAL|2026-11-2511:41",
     "620999052|DEPARTURE|2026-11-2517:19",
     "341883001|DEPARTURE|2026-11-2604:14",
-    "620999052|ARRIVAL|2026-11-2604:12"
+    "620999052|ARRIVAL|2026-11-2604:12",
+    "620843000|DEPARTURE|2026-11-2618:05"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-26",
-  "last_expected_sent": "2026-11-26T19:16:25.170983+03:00",
+  "last_expected_sent": "2026-11-26T22:16:27.257140+03:00",
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-26",
-  "recent_departures": {},
-  "last_success_at": "2026-11-26T22:00:33.966690+03:00"
+  "recent_departures": {
+    "620843000": "2026-11-26T22:15:29.024259+03:00"
+  },
+  "last_success_at": "2026-11-26T22:15:23.734322+03:00"
 }
