@@ -1,6 +1,5 @@
 {
   "seen": [
-    "2026-08-2207:57|DEPARTURE|AXIS I [TG]",
     "2026-08-2216:56|DEPARTURE|BRAVE M [BZ]",
     "2026-08-2217:08|ARRIVAL|AXIS I [TG]",
     "2026-08-2217:56|ARRIVAL|PRINCESS MARIAM [TZ]",
@@ -499,7 +498,8 @@
     "273613220|ARRIVAL|2026-11-2711:09",
     "375797000|ARRIVAL|2026-11-2711:06",
     "375797000|DEPARTURE|2026-11-2710:34",
-    "305018300|DEPARTURE|2026-11-2710:30"
+    "305018300|DEPARTURE|2026-11-2710:30",
+    "255806196|DEPARTURE|2026-11-2800:32"
   ],
   "update_offset": 362578853,
   "last_summary_date": "2026-11-27",
@@ -507,6 +507,8 @@
   "pending": {},
   "zone_vessels": {},
   "last_zone_summary_date": "2026-11-27",
-  "recent_departures": {},
-  "last_success_at": "2026-11-28T04:45:21.319237+03:00"
+  "recent_departures": {
+    "255806196": "2026-11-28T05:15:28.610417+03:00"
+  },
+  "last_success_at": "2026-11-28T05:15:23.654327+03:00"
 }
